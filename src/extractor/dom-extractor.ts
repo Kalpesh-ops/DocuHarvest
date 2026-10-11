@@ -298,7 +298,7 @@ function isRecognizedDocumentationDisclosure(el: HTMLElement, container: HTMLEle
     }
   }
 
-  // Positive qualification:
+  // Positive qualification: must meet at least ONE explicit documentation disclosure criterion
   // 1. Inside recognized accordion or disclosure container
   const disclosureContainer = el.closest('.accordion, .collapsible, .disclosure, .faq, .expandable, .details, [data-accordion], [data-collapsible], .accordion-item');
   if (disclosureContainer) return true;
@@ -306,22 +306,38 @@ function isRecognizedDocumentationDisclosure(el: HTMLElement, container: HTMLEle
   // 2. Button class or data attributes indicate disclosure
   const classNames = (el.className || '').toString();
   if (/\b(accordion|collapsible|disclosure|expandable|toggle-collapse)\b/i.test(classNames)) return true;
+  if (el.hasAttribute('data-accordion') || el.hasAttribute('data-collapsible')) return true;
 
-  // 3. aria-controls points to an element inside container that is a collapse/accordion panel
+  // 3. Button text explicitly indicates section/disclosure toggle
+  if (/\b(toggle|expand|collapse)\s+(section|all|details|content|faq|answers?|notes?)\b/i.test(text)) {
+    return true;
+  }
+
+  // 4. aria-controls points to an element inside container that is a collapse/accordion panel
   const controlsId = el.getAttribute('aria-controls');
   if (controlsId) {
     const controlled = container.querySelector(`#${safeEscapeCss(controlsId)}`);
     if (controlled) {
       const controlledClass = (controlled.className || '').toString().toLowerCase();
       const controlledRole = (controlled.getAttribute('role') || '').toLowerCase();
-      if (controlledRole === 'region' || controlledClass.includes('collapse') || controlledClass.includes('accordion') || controlledClass.includes('content') || controlledClass.includes('panel')) {
+      if (
+        controlledRole === 'region' ||
+        controlledRole === 'tabpanel' ||
+        controlledClass.includes('collapse') ||
+        controlledClass.includes('accordion') ||
+        controlledClass.includes('disclosure') ||
+        controlledClass.includes('faq') ||
+        controlledClass.includes('content') ||
+        controlledClass.includes('panel')
+      ) {
         return true;
       }
     }
   }
 
-  // 4. Must be directly contained in the main documentation content
-  return container.contains(el);
+  // Reject any control that does not meet positive documentation disclosure criteria.
+  // Mere containment inside the main content container is NEVER sufficient.
+  return false;
 }
 
 /**
