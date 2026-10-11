@@ -8,7 +8,8 @@ import {
   extractBreadcrumbs,
   extractInternalLinks,
   extractSections,
-  waitForContentStabilization
+  waitForContentStabilization,
+  extractCurrentPage
 } from '../src/extractor/dom-extractor';
 import { discoverPages, findSidebarElement, expandSidebarGroups } from '../src/discovery/page-discovery';
 import { extractAllTabsSafely } from '../src/extractor/tab-extractor';
@@ -18,7 +19,7 @@ import {
   compileStructuredCsv,
   formatSafeCodeBlock
 } from '../src/export/exporter';
-import { createDefaultConfig, createInitialSession, normalizeUrl } from '../src/storage/storage';
+import { createDefaultConfig, createInitialSession, normalizeUrl, saveSession, getStoredSession } from '../src/storage/storage';
 import { CollectedPage } from '../src/types';
 
 describe('Phase 3 — Synthetic Extraction Fixtures & Completeness Suite', () => {
@@ -409,6 +410,119 @@ describe('Phase 3 — Synthetic Extraction Fixtures & Completeness Suite', () =>
     it('waitForContentStabilization resolves gracefully within timeout', async () => {
       const stabilizationPromise = waitForContentStabilization(300);
       await expect(stabilizationPromise).resolves.toBeUndefined();
+    });
+  });
+
+  describe('12. Synthetic Documentation Multi-Page E2E Simulation', () => {
+    it('executes a complete multi-page flow: discovery, tab extraction, persistence, and non-destructive export', async () => {
+      // Step 1: Render synthetic documentation site page 1 (Overview)
+      const baseOrigin = window.location.origin;
+      document.body.innerHTML = `
+        <aside class="docs-sidebar">
+          <nav>
+            <a href="/docs/intro">Getting Started</a>
+            <a href="/docs/sdks">SDKs & Integration</a>
+            <a href="/docs/api">REST API Reference</a>
+          </nav>
+        </aside>
+        <main id="main-content">
+          <h1>Getting Started</h1>
+          <p>Welcome to the Project Octahedron developer documentation. This guide walks you through configuration and deployment across environments.</p>
+          <p>Follow along with the subsequent sections to authenticate and execute requests.</p>
+        </main>
+      `;
+
+      window.history.replaceState({}, '', '/docs/intro');
+      document.title = 'Getting Started — Project Octahedron';
+
+      // Session initialization
+      const session = createInitialSession(`${baseOrigin}/docs/intro`, 'Getting Started');
+      session.config.autoScroll = false;
+      session.config.captureTabs = true;
+      session.config.safeTabSwitching = true;
+      session.config.expandAccordions = true;
+
+      // Discover pages from sidebar
+      const discovered = await discoverPages(session.config);
+      expect(discovered.length).toBe(3);
+      for (const d of discovered) {
+        session.discoveredPages[d.url] = d;
+        session.queue.push(d.url);
+      }
+      await saveSession(session);
+
+      // Extract Page 1
+      const page1 = await extractCurrentPage('#main-content', false, true, true, true, false, 0, 50);
+      expect(page1.wordCount).toBeGreaterThan(25);
+      expect(page1.isComplete).toBe(true);
+      session.collectedPages[page1.url] = page1;
+      session.discoveredPages[page1.url].status = 'completed';
+      session.queue = session.queue.filter(u => u !== page1.url);
+      await saveSession(session);
+
+      // Step 2: Simulate navigating to Page 2 (Tabs & Accordions)
+      document.title = 'SDKs & Integration — Project Octahedron';
+      document.body.innerHTML = `
+        <main id="main-content">
+          <h1>SDKs & Integration</h1>
+          <p>Authenticate all client requests using bearer authorization tokens generated in the developer dashboard.</p>
+          <div role="tablist">
+            <button role="tab" id="tab-py" aria-controls="panel-py" aria-selected="true">Python</button>
+            <button role="tab" id="tab-js" aria-controls="panel-js">Node.js</button>
+            <button role="tab" id="tab-sh" aria-controls="panel-sh">cURL</button>
+          </div>
+          <div role="tabpanel" id="panel-py">
+            <pre><code>import octahedron\nclient = octahedron.Client(api_key="oct_live_123")</code></pre>
+          </div>
+          <div role="tabpanel" id="panel-js" hidden>
+            <pre><code>import { Client } from '@octahedron/sdk';\nconst client = new Client({ apiKey: 'oct_live_123' });</code></pre>
+          </div>
+          <div role="tabpanel" id="panel-sh" hidden>
+            <pre><code>curl -H "Authorization: Bearer oct_live_123" https://api.octahedron.dev/v1/user</code></pre>
+          </div>
+          <details id="advanced-auth">
+            <summary>Advanced OAuth2 Workflows</summary>
+            <p>For third-party integrations, use authorization code grant flows with PKCE.</p>
+          </details>
+        </main>
+      `;
+
+      const page2 = await extractCurrentPage('#main-content', false, true, true, true, false, 0, 50);
+      expect(page2.tabsExtracted?.length).toBe(3);
+      expect(page2.isComplete).toBe(true);
+      session.collectedPages[`${baseOrigin}/docs/sdks`] = page2;
+      session.discoveredPages[`${baseOrigin}/docs/sdks`].status = 'completed';
+      session.queue = session.queue.filter(u => u !== `${baseOrigin}/docs/sdks`);
+      await saveSession(session);
+
+      // Step 3: Verify Persistence Survives and Reload Works
+      const loadedSession = await getStoredSession();
+      expect(loadedSession).not.toBeNull();
+      expect(Object.keys(loadedSession!.collectedPages).length).toBe(2);
+      expect(loadedSession!.queue.length).toBe(1);
+
+      // Step 4: Export Multi-Page Bundle Non-Destructively
+      const markdown = compileMasterMarkdown(loadedSession!);
+      expect(markdown).toContain('# Getting Started');
+      expect(markdown).toContain('# SDKs & Integration');
+      expect(markdown).toContain('Python');
+      expect(markdown).toContain('Node.js');
+      expect(markdown).toContain('cURL');
+      expect(markdown).toContain('## Collection & Audit Report');
+      expect(markdown).toContain('Verified Complete');
+
+      const jsonStr = compileStructuredJson(loadedSession!);
+      const parsedJson = JSON.parse(jsonStr);
+      expect(parsedJson.pages.length).toBe(2);
+      expect(parsedJson.metadata.stats.collectedPages).toBe(2);
+
+      const csvStr = compileStructuredCsv(loadedSession!);
+      expect(csvStr).toContain('"Getting Started"');
+      expect(csvStr).toContain('"SDKs & Integration"');
+
+      // Crucial requirement: Exporting must not mutate or delete session data
+      expect(Object.keys(loadedSession!.collectedPages).length).toBe(2);
+      expect(loadedSession!.queue.length).toBe(1);
     });
   });
 });

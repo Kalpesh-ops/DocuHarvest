@@ -12,8 +12,15 @@ import {
 } from '../src/storage/storage';
 import { HarvestSession } from '../src/types';
 import { exportAsMarkdown, exportAsJson, exportAsCsv } from '../src/export/exporter';
+import {
+  expandAllCollapsibles,
+  extractCurrentPage,
+  handleVirtualizedAndNestedContainers,
+  extractBreadcrumbs,
+  extractInternalLinks,
+} from '../src/extractor/dom-extractor';
 
-describe('Phase 2 — Lifecycle & Interaction Verification Suite (15 Test Cases)', () => {
+describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', () => {
   let session: HarvestSession;
   let mockChromeData: any;
 
@@ -324,5 +331,229 @@ describe('Phase 2 — Lifecycle & Interaction Verification Suite (15 Test Cases)
     expect(clearCallbackTriggered).toBe(true);
 
     panel.destroy();
+  });
+
+  it('Case 16: Coordinator race condition — superseded worker detects loss of authority and halts', async () => {
+    session.status = 'running';
+    await saveSession(session);
+
+    const orch1 = new CollectionOrchestrator(session);
+    const token1 = orch1.getCoordinatorToken();
+
+    // Orch 1 claims coordination
+    session.activeCoordinatorToken = token1;
+    await saveSession(session);
+    expect(await orch1.isCoordinatorAuthoritative()).toBe(true);
+
+    // Another tab / worker starts with a new token
+    const orch2 = new CollectionOrchestrator(session);
+    const token2 = orch2.getCoordinatorToken();
+    session.activeCoordinatorToken = token2;
+    await saveSession(session);
+
+    // Orch 1 must detect that it is no longer authoritative
+    expect(await orch1.isCoordinatorAuthoritative()).toBe(false);
+  });
+
+  it('Case 17: Stop-during-navigation aborts pending operations promptly', async () => {
+    session.status = 'running';
+    session.queue = ['https://docs.site.com/next-page'];
+    await saveSession(session);
+
+    const orch = new CollectionOrchestrator(session);
+    session.activeCoordinatorToken = orch.getCoordinatorToken();
+    await saveSession(session);
+
+    // Trigger stop while abortable delay is running
+    const sleepPromise = (orch as any).sleepAbortable(5000);
+    await orch.stop();
+
+    const proceeded = await sleepPromise;
+    expect(proceeded).toBe(false); // Immediate exit, did not wait 5000ms
+    expect(orch.getSession().status).toBe('stopped');
+    expect(orch.getSession().activeTargetUrl).toBeNull();
+  });
+
+  it('Case 18: Pause-during-delay aborts rate-limit wait immediately without advancing queue', async () => {
+    session.status = 'running';
+    session.queue = ['https://docs.site.com/p1', 'https://docs.site.com/p2'];
+    await saveSession(session);
+
+    const orch = new CollectionOrchestrator(session);
+    session.activeCoordinatorToken = orch.getCoordinatorToken();
+    await saveSession(session);
+
+    const sleepPromise = (orch as any).sleepAbortable(5000);
+    await orch.pause();
+
+    const proceeded = await sleepPromise;
+    expect(proceeded).toBe(false);
+    expect(orch.getSession().status).toBe('paused');
+    expect(orch.getSession().queue).toEqual(['https://docs.site.com/p1', 'https://docs.site.com/p2']);
+  });
+
+  it('Case 19: SPA routing failure breaks navigation loop after bounded attempts and marks page failed', async () => {
+    const targetUrl = 'https://docs.site.com/unreachable';
+    session.status = 'running';
+    session.queue = [targetUrl];
+    session.discoveredPages[targetUrl] = {
+      id: 'u1',
+      url: targetUrl,
+      title: 'Unreachable Page',
+      depth: 1,
+      status: 'pending',
+      discoveredAt: Date.now(),
+    };
+    await saveSession(session);
+
+    const orch = new CollectionOrchestrator(session);
+    session.activeCoordinatorToken = orch.getCoordinatorToken();
+    await saveSession(session);
+
+    // Mock navigateToPage to simulate SPA navigation failure (stays on same URL)
+    vi.spyOn(orch as any, 'navigateToPage').mockResolvedValue('noop');
+    vi.spyOn(orch as any, 'sleepAbortable').mockResolvedValue(true);
+
+    // Run collection loop
+    await orch.runCollectionLoop();
+
+    // Target page must be marked failed and removed from queue, loop terminated
+    expect(orch.getSession().queue).not.toContain(targetUrl);
+    expect(orch.getSession().discoveredPages[targetUrl].status).toBe('failed');
+    expect(orch.getSession().errors.some(e => e.url === targetUrl)).toBe(true);
+  });
+
+  it('Case 20: Storage-write failure is recorded and surfaced instead of silently swallowed', async () => {
+    vi.spyOn(chrome.storage.local, 'set').mockRejectedValueOnce(new Error('QUOTA_BYTES_PER_ITEM quota exceeded'));
+
+    await expect(saveSession(session)).rejects.toThrow('QUOTA_BYTES_PER_ITEM quota exceeded');
+    expect(session.storageError).toContain('QUOTA_BYTES_PER_ITEM');
+    expect(session.errors.some(e => e.message.includes('QUOTA_BYTES_PER_ITEM'))).toBe(true);
+  });
+
+  it('Case 21: Accordion handling restores initial open/closed state after extraction', () => {
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <details id="det1" open><summary>Details 1</summary><p>Content 1</p></details>
+      <details id="det2"><summary>Details 2</summary><p>Content 2</p></details>
+      <button id="aria-btn" aria-expanded="false">Toggle Section</button>
+    `;
+    document.body.appendChild(container);
+
+    const det1 = container.querySelector<HTMLDetailsElement>('#det1')!;
+    const det2 = container.querySelector<HTMLDetailsElement>('#det2')!;
+    const ariaBtn = container.querySelector<HTMLElement>('#aria-btn')!;
+
+    expect(det1.open).toBe(true);
+    expect(det2.open).toBe(false);
+    expect(ariaBtn.getAttribute('aria-expanded')).toBe('false');
+
+    const restore = expandAllCollapsibles(container);
+
+    // Both details are expanded for extraction
+    expect(det1.open).toBe(true);
+    expect(det2.open).toBe(true);
+    expect(ariaBtn.getAttribute('aria-expanded')).toBe('true');
+
+    // Calling restore reverts back to initial states
+    restore();
+
+    expect(det1.open).toBe(true);
+    expect(det2.open).toBe(false);
+    expect(ariaBtn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('Case 22: Reader scroll position is preserved and restored after page extraction', async () => {
+    const scrollToSpy = vi.fn();
+    window.scrollTo = scrollToSpy;
+    window.scrollX = 50;
+    window.scrollY = 420;
+
+    document.body.innerHTML = `
+      <main id="content">
+        <h1>Documentation Guide</h1>
+        <p>This is a sufficiently long documentation page for extracting rich contents.</p>
+        <p>Section with additional words to exceed minimum word count requirements easily.</p>
+      </main>
+    `;
+
+    await extractCurrentPage('#content', false, false, false, false, false, 0, 50);
+
+    // Verify window.scrollTo was called to restore reader's position
+    expect(scrollToSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        left: 50,
+        top: 420,
+        behavior: 'instant',
+      })
+    );
+  });
+
+  it('Case 23: Virtualized content accumulates and deduplicates batches across container scrolling', async () => {
+    const container = document.createElement('div');
+    container.id = 'virtual-container';
+    container.style.overflowY = 'auto';
+    Object.defineProperty(container, 'clientHeight', { value: 200, configurable: true });
+    Object.defineProperty(container, 'scrollHeight', { value: 800, configurable: true });
+
+    container.innerHTML = `
+      <div class="virtual-item">Virtual Row 1 - API Parameters</div>
+      <div class="virtual-item">Virtual Row 2 - Request Headers</div>
+    `;
+    document.body.appendChild(container);
+
+    const res = await handleVirtualizedAndNestedContainers(container, 3);
+    expect(res.accumulatedItems.length).toBeGreaterThanOrEqual(2);
+    expect(res.accumulatedItems.some(i => i.content.includes('Virtual Row 1'))).toBe(true);
+    expect(res.accumulatedItems.some(i => i.content.includes('Virtual Row 2'))).toBe(true);
+  });
+
+  it('Case 24: Extension shadow DOM (#docuharvest-root) is completely excluded from extraction and links', () => {
+    const root = document.createElement('div');
+    root.id = 'docuharvest-root';
+    root.innerHTML = `
+      <nav class="breadcrumb"><span>Extension Nav</span></nav>
+      <a href="/extension-internal-link">Control Link</a>
+      <h2>Extension Controls</h2>
+    `;
+    document.body.appendChild(root);
+
+    const docEl = document.createElement('div');
+    docEl.innerHTML = `
+      <nav aria-label="breadcrumb"><ol><li><a href="/home">Docs Home</a></li><li>API</li></ol></nav>
+      <a href="/real-api-doc">Real Doc Link</a>
+    `;
+    document.body.appendChild(docEl);
+
+    const breadcrumbs = extractBreadcrumbs(document);
+    expect(breadcrumbs).toEqual(['Docs Home', 'API']);
+    expect(breadcrumbs).not.toContain('Extension Nav');
+
+    const links = extractInternalLinks(document.body, window.location.origin);
+    expect(links.some(l => l.url.includes('extension-internal-link'))).toBe(false);
+  });
+
+  it('Case 25: Unsafe or destructive tabs are not clicked and mark the page incomplete', async () => {
+    document.body.innerHTML = `
+      <main id="content">
+        <h1>API Configuration</h1>
+        <p>Here is information on configuring API settings for your deployment.</p>
+        <p>Adding more sentences here so that word count is well above minimum threshold for extraction verification.</p>
+        <div role="tablist">
+          <button role="tab" id="tab-read" aria-controls="panel-read" aria-selected="true">Read Settings</button>
+          <button role="tab" id="tab-delete" aria-controls="panel-delete">Delete Database</button>
+        </div>
+        <div role="tabpanel" id="panel-read">Safe Read Information</div>
+        <div role="tabpanel" id="panel-delete" hidden>Destructive Drop Action</div>
+      </main>
+    `;
+
+    const page = await extractCurrentPage('#content', false, false, true, true, false, 0, 50);
+
+    expect(page.tabsExtracted).toBeDefined();
+    const unsafeRecord = page.tabsExtracted?.find(t => t.tabName === 'Delete Database');
+    expect(unsafeRecord?.status).toBe('unsafe');
+    expect(page.isComplete).toBe(false);
+    expect(page.warnings?.some(w => w.includes('unsafe or empty'))).toBe(true);
   });
 });
