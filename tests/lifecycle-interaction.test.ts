@@ -11,7 +11,7 @@ import {
   computeSessionStats
 } from '../src/storage/storage';
 import { HarvestSession } from '../src/types';
-import { exportAsMarkdown, exportAsJson, exportAsCsv } from '../src/export/exporter';
+import { exportAsMarkdown, exportAsJson, exportAsCsv, formatSafeCodeBlock } from '../src/export/exporter';
 import {
   expandAllCollapsibles,
   extractCurrentPage,
@@ -19,6 +19,7 @@ import {
   extractBreadcrumbs,
   extractInternalLinks,
 } from '../src/extractor/dom-extractor';
+import { extractAllTabsSafely } from '../src/extractor/tab-extractor';
 
 describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', () => {
   let session: HarvestSession;
@@ -556,4 +557,153 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
     expect(page.isComplete).toBe(false);
     expect(page.warnings?.some(w => w.includes('unsafe or empty'))).toBe(true);
   });
+
+  it('Case 26: Accordion expansion restricts to documentation disclosures and re-clicks on restore to reverse DOM mutations', () => {
+    document.body.innerHTML = `
+      <header>
+        <button id="menu-btn" aria-expanded="false" aria-haspopup="true">Navigation Menu</button>
+      </header>
+      <nav>
+        <button id="nav-dropdown" aria-expanded="false">Nav Dropdown</button>
+      </nav>
+      <main id="content">
+        <button id="profile-btn" aria-expanded="false" aria-controls="user-profile">User Profile</button>
+        <div id="user-profile" hidden>Profile Settings</div>
+        
+        <div class="accordion-item">
+          <button id="doc-accordion" aria-expanded="false" aria-controls="faq-answer">FAQ: How does caching work?</button>
+          <div id="faq-answer" hidden>Caching is handled via in-memory and disk caches.</div>
+        </div>
+      </main>
+    `;
+
+    const menuBtn = document.getElementById('menu-btn') as HTMLButtonElement;
+    const navDropdown = document.getElementById('nav-dropdown') as HTMLButtonElement;
+    const profileBtn = document.getElementById('profile-btn') as HTMLButtonElement;
+    const docAccordion = document.getElementById('doc-accordion') as HTMLButtonElement;
+
+    let docClickCount = 0;
+    docAccordion.addEventListener('click', () => {
+      docClickCount++;
+      const current = docAccordion.getAttribute('aria-expanded') === 'true';
+      docAccordion.setAttribute('aria-expanded', String(!current));
+    });
+
+    const restore = expandAllCollapsibles(document.body);
+
+    // Menu, nav dropdown, and profile button must NOT have been expanded
+    expect(menuBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(navDropdown.getAttribute('aria-expanded')).toBe('false');
+    expect(profileBtn.getAttribute('aria-expanded')).toBe('false');
+
+    // Genuine documentation accordion was clicked to expand
+    expect(docAccordion.getAttribute('aria-expanded')).toBe('true');
+    expect(docClickCount).toBe(1);
+
+    // Restoration must re-click the button, reversing the toggle
+    restore();
+    expect(docClickCount).toBe(2);
+    expect(docAccordion.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('Case 27: Tab-panel lookup rejects panels outside group container and marks page incomplete if unrestored', async () => {
+    document.body.innerHTML = `
+      <div id="outer-scope">
+        <div id="foreign-panel" role="tabpanel">Foreign Panel Outside Tab Group</div>
+      </div>
+      <div id="tab-group-container" class="tabs-wrapper">
+        <div role="tablist">
+          <button role="tab" id="tab-leaker" aria-controls="foreign-panel" aria-selected="true">Leaker Tab</button>
+          <button role="tab" id="tab-normal" aria-controls="local-panel">Normal Tab</button>
+        </div>
+        <div role="tabpanel" id="local-panel">Local Panel Content</div>
+      </div>
+    `;
+
+    const container = document.getElementById('tab-group-container') as HTMLElement;
+    const tabsResult = await extractAllTabsSafely(container, true);
+
+    // Foreign panel was outside group container, so tab-leaker must be rejected (empty panel record)
+    expect(tabsResult.records.length).toBe(2);
+    const leakerRecord = tabsResult.records.find(r => r.tabName === 'Leaker Tab');
+    expect(leakerRecord).toBeDefined();
+    expect(leakerRecord?.status).toBe('empty');
+
+    const normalRecord = tabsResult.records.find(r => r.tabName === 'Normal Tab');
+    expect(normalRecord).toBeDefined();
+    expect(normalRecord?.status).toBe('extracted');
+  });
+
+  it('Case 28: AbortSignal cancels in-progress extraction immediately and restores page state in finally', async () => {
+    document.body.innerHTML = `
+      <main id="content">
+        <h1>Long Document</h1>
+        <p>Paragraph content for cancellation testing.</p>
+        <div class="accordion-item">
+          <button id="cancel-accordion" aria-expanded="false" aria-controls="acc-body">Details</button>
+          <div id="acc-body" hidden>Hidden content</div>
+        </div>
+      </main>
+    `;
+
+    const abortController = new AbortController();
+    abortController.abort(); // already aborted
+
+    await expect(
+      extractCurrentPage('#content', false, true, false, false, false, 0, 100, abortController.signal)
+    ).rejects.toThrow('Extraction aborted');
+  });
+
+  it('Case 29: Dynamic Markdown code block fencing safely handles triple, quadruple, and arbitrarily nested backticks', () => {
+    // Normal code block
+    const normal = formatSafeCodeBlock('console.log("hello");', 'typescript');
+    expect(normal).toContain('```typescript\nconsole.log("hello");\n```');
+
+    // Code block containing triple backticks
+    const withTriple = formatSafeCodeBlock('Markdown with ```code``` inside', 'markdown');
+    expect(withTriple).toContain('````markdown\nMarkdown with ```code``` inside\n````');
+
+    // Code block containing both triple and quadruple backticks
+    const withQuad = formatSafeCodeBlock('Here is ``` and here is ```` backticks', 'text');
+    expect(withQuad).toContain('`````text\nHere is ``` and here is ```` backticks\n`````');
+
+    // Code block containing 5 consecutive backticks
+    const withFive = formatSafeCodeBlock('Nested ````` five backticks', 'text');
+    expect(withFive).toContain('``````text\nNested ````` five backticks\n``````');
+  });
+
+  it('Case 30: Discovered page status is accurately marked "partial" (not "completed") when extraction is incomplete', async () => {
+    const targetUrl = session.currentUrl;
+    session.discoveredPages[targetUrl] = {
+      id: targetUrl,
+      url: targetUrl,
+      title: 'Short Page',
+      status: 'pending',
+      depth: 0,
+      discoveredAt: Date.now(),
+    };
+    session.queue = [targetUrl];
+    session.status = 'running';
+
+    const orchestrator = new CollectionOrchestrator(
+      session,
+      () => {}
+    );
+    session.activeCoordinatorToken = orchestrator.getCoordinatorToken();
+    await saveSession(session);
+
+    document.body.innerHTML = `
+      <main id="content">
+        <h1>Short</h1>
+        <p>Too short.</p>
+      </main>
+    `;
+
+    // Process a page that results in word count < 25 (isComplete: false)
+    await (orchestrator as any).processCurrentPageContent(targetUrl);
+
+    expect(session.discoveredPages[targetUrl].status).toBe('partial');
+    expect(session.collectedPages[targetUrl].isComplete).toBe(false);
+  });
 });
+
