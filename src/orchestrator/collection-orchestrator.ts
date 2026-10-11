@@ -1,7 +1,7 @@
 /**
  * DocuHarvest - Complete Collection Orchestrator
- * Single collection coordinator, SPA & multi-page navigation support,
- * bounded retries, per-page timeouts, and comprehensive state transitions.
+ * Single authoritative collection coordinator, SPA & multi-page navigation support,
+ * race-safe coordinator verification, bounded retries, loop prevention, and prompt interruption on pause/stop.
  */
 
 import { DiscoveredPage, HarvestSession } from '../types';
@@ -19,16 +19,23 @@ export class CollectionOrchestrator {
   private session: HarvestSession;
   private isProcessing: boolean = false;
   private coordinatorToken: string;
+  private abortController: AbortController | null = null;
+  private navigationAttempts: Map<string, number> = new Map();
   private onStateChange?: (session: HarvestSession) => void;
 
   constructor(session: HarvestSession, onStateChange?: (session: HarvestSession) => void) {
     this.session = session;
-    this.coordinatorToken = `coord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    this.coordinatorToken = `coord_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    this.abortController = new AbortController();
     this.onStateChange = onStateChange;
   }
 
   public getSession(): HarvestSession {
     return this.session;
+  }
+
+  public getCoordinatorToken(): string {
+    return this.coordinatorToken;
   }
 
   public updateSessionLocal(session: HarvestSession): void {
@@ -39,13 +46,46 @@ export class CollectionOrchestrator {
   }
 
   /**
+   * Verifies that this orchestrator instance remains the sole authoritative coordinator.
+   */
+  public async isCoordinatorAuthoritative(): Promise<boolean> {
+    try {
+      const stored = await getStoredSession();
+      if (!stored) return false;
+      if (stored.status !== 'running') return false;
+      return stored.activeCoordinatorToken === this.coordinatorToken;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Sleep helper that immediately resolves if pause/stop aborts the operation.
+   */
+  private sleepAbortable(ms: number): Promise<boolean> {
+    return new Promise(resolve => {
+      if (this.abortController?.signal.aborted) {
+        return resolve(false);
+      }
+      const timer = setTimeout(() => resolve(true), ms);
+      this.abortController?.signal.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          resolve(false);
+        },
+        { once: true }
+      );
+    });
+  }
+
+  /**
    * Initializes or resumes state on content script mount or SPA route change.
    */
   public async initOnPageLoad(): Promise<void> {
     const currentNormUrl = normalizeUrl(window.location.href);
     const pageTitle = (document.title || 'Documentation Page').split(/[-|–—]/)[0].trim();
 
-    // Check if session in storage is currently running
     const stored = await getStoredSession();
     if (stored) {
       this.session = stored;
@@ -53,17 +93,21 @@ export class CollectionOrchestrator {
       this.session.currentPageName = pageTitle;
 
       if (this.session.status === 'running') {
-        // Claim coordination token
+        // Claim authoritative coordination token
         this.session.activeCoordinatorToken = this.coordinatorToken;
-        await saveSession(this.session);
+        this.abortController = new AbortController();
+        await this.saveAndNotify();
 
         this.emitUpdate('Page loaded. Settling rendered DOM & SPA hydration...');
-        await new Promise(resolve => setTimeout(resolve, 600));
+        const proceeded = await this.sleepAbortable(500);
+        if (!proceeded || !(await this.isCoordinatorAuthoritative())) {
+          return;
+        }
+
         await this.runCollectionLoop();
         return;
       }
     } else {
-      // First time on this page
       this.session.currentUrl = currentNormUrl;
       this.session.currentPageName = pageTitle;
       await this.saveAndNotify();
@@ -80,10 +124,13 @@ export class CollectionOrchestrator {
       return this.resume();
     }
 
-    this.emitUpdate('Discovering documentation pages from sidebar and navigation...');
-
-    // Assign active coordinator token
+    this.abortController = new AbortController();
     this.session.activeCoordinatorToken = this.coordinatorToken;
+    this.session.status = 'running';
+    this.session.startedAt = Date.now();
+    this.session.completedAt = undefined;
+    this.session.activeTargetUrl = normalizeUrl(window.location.href);
+    this.emitUpdate('Discovering documentation pages from sidebar and navigation...');
 
     // Discover pages from sidebar
     const discovered = await discoverPages(this.session.config);
@@ -97,14 +144,11 @@ export class CollectionOrchestrator {
       queue.push(page.url);
     }
 
-    this.session.status = 'running';
-    this.session.startedAt = Date.now();
-    this.session.completedAt = undefined;
     this.session.discoveredPages = discoveredMap;
     this.session.pagesOrder = pagesOrder;
     this.session.queue = queue;
     this.session.collectedPages = {};
-    this.session.activeTargetUrl = normalizeUrl(window.location.href);
+    this.navigationAttempts.clear();
 
     const stats = computeSessionStats(this.session);
     this.session.progressPercentage = stats.progressPercentage;
@@ -114,11 +158,12 @@ export class CollectionOrchestrator {
   }
 
   /**
-   * Pauses the collection. Navigation and processing are halted.
+   * Pauses the collection. Halted immediately across any asynchronous delays.
    */
   public async pause(): Promise<void> {
     if (this.session.status !== 'running') return;
 
+    this.abortController?.abort();
     this.session.status = 'paused';
     this.session.activeCoordinatorToken = null;
     this.session.currentOperation = 'Collection paused by user.';
@@ -131,6 +176,7 @@ export class CollectionOrchestrator {
   public async resume(): Promise<void> {
     if (this.session.status !== 'paused' && this.session.status !== 'stopped') return;
 
+    this.abortController = new AbortController();
     this.session.status = 'running';
     this.session.activeCoordinatorToken = this.coordinatorToken;
     this.session.currentOperation = 'Resuming collection...';
@@ -140,9 +186,10 @@ export class CollectionOrchestrator {
   }
 
   /**
-   * Stops collection. Keeps all collected pages intact.
+   * Stops collection. Retains all collected data intact.
    */
   public async stop(): Promise<void> {
+    this.abortController?.abort();
     this.session.status = 'stopped';
     this.session.activeCoordinatorToken = null;
     this.session.currentOperation = 'Collection stopped. Progress preserved.';
@@ -154,6 +201,7 @@ export class CollectionOrchestrator {
    * Resets session to clean idle state.
    */
   public async reset(): Promise<void> {
+    this.abortController?.abort();
     const currentUrl = normalizeUrl(window.location.href);
     const title = (document.title || 'Documentation Page').split(/[-|–—]/)[0].trim();
     const fresh = createInitialSession(currentUrl, title);
@@ -161,10 +209,8 @@ export class CollectionOrchestrator {
     fresh.panelPosition = this.session.panelPosition;
     fresh.panelQueueVisible = this.session.panelQueueVisible;
     this.session = fresh;
-    await saveSession(this.session);
-    if (this.onStateChange) {
-      this.onStateChange(this.session);
-    }
+    this.navigationAttempts.clear();
+    await this.saveAndNotify();
   }
 
   /**
@@ -191,6 +237,7 @@ export class CollectionOrchestrator {
       page.status = 'pending';
       page.error = undefined;
       page.retryCount = 0;
+      this.navigationAttempts.delete(url);
       if (!this.session.queue.includes(url)) {
         this.session.queue.unshift(url);
       }
@@ -205,14 +252,21 @@ export class CollectionOrchestrator {
    * Navigates to target page using client-side SPA routing if available,
    * falling back to full window navigation.
    */
-  private async navigateToPage(targetUrl: string): Promise<'spa' | 'mpa'> {
+  private async navigateToPage(targetUrl: string): Promise<'spa' | 'mpa' | 'noop'> {
     const targetNorm = normalizeUrl(targetUrl);
+    const currentNorm = normalizeUrl(window.location.href);
+
+    if (targetNorm === currentNorm) {
+      return 'noop';
+    }
+
     const startHref = window.location.href;
 
     // 1. Try finding an existing in-DOM navigation anchor to trigger SPA routing
-    const allLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'));
-    let matchedAnchor: HTMLAnchorElement | null = null;
+    const allLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
+      .filter(a => !a.closest('#docuharvest-root'));
 
+    let matchedAnchor: HTMLAnchorElement | null = null;
     for (const a of allLinks) {
       try {
         const fullHref = new URL(a.getAttribute('href') || '', window.location.origin).toString();
@@ -228,12 +282,12 @@ export class CollectionOrchestrator {
     if (matchedAnchor) {
       try {
         matchedAnchor.click();
-        const spaSwitched = await this.waitForUrlChange(startHref, 1500);
+        const spaSwitched = await this.waitForUrlChange(startHref, 1200);
         if (spaSwitched) {
           return 'spa';
         }
       } catch {
-        // continue to MPA fallback
+        // fallback to MPA
       }
     }
 
@@ -245,17 +299,21 @@ export class CollectionOrchestrator {
   private async waitForUrlChange(previousUrl: string, maxWaitMs: number): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < maxWaitMs) {
+      if (this.abortController?.signal.aborted) {
+        return false;
+      }
       if (window.location.href !== previousUrl) {
         return true;
       }
-      await new Promise(resolve => setTimeout(resolve, 80));
+      await new Promise(resolve => setTimeout(resolve, 60));
     }
     return false;
   }
 
   /**
    * Main collection loop that sequentially processes pages,
-   * handles both SPA and MPA navigations, and respects pause/stop.
+   * verifies authoritative coordinator token before every step,
+   * prevents repeated-navigation loops, and respects pause/stop.
    */
   public async runCollectionLoop(): Promise<void> {
     if (this.isProcessing) return;
@@ -263,22 +321,23 @@ export class CollectionOrchestrator {
 
     try {
       while (this.session.status === 'running') {
-        const stored = await getStoredSession();
-        if (stored?.status !== 'running') {
+        if (!(await this.isCoordinatorAuthoritative())) {
           break;
         }
 
         const currentNormUrl = normalizeUrl(window.location.href);
 
-        // If the current page is in the queue or not yet collected:
-        if (this.session.queue.includes(currentNormUrl) || !this.session.collectedPages[currentNormUrl]) {
+        // Process current page content if in queue or not yet collected
+        const isCurrentCollected = !!this.session.collectedPages[currentNormUrl];
+        if (this.session.queue.includes(currentNormUrl) || !isCurrentCollected) {
           await this.processCurrentPageContent(currentNormUrl);
         }
 
-        // Re-check running status
-        if (this.session.status !== 'running') break;
+        if (!(await this.isCoordinatorAuthoritative())) {
+          break;
+        }
 
-        // If queue is empty, complete session
+        // Check if queue is completed
         if (this.session.queue.length === 0) {
           const stats = computeSessionStats(this.session);
           this.session.status = 'completed';
@@ -293,32 +352,65 @@ export class CollectionOrchestrator {
 
         // Pick next URL
         const nextUrl = this.session.queue[0];
+
+        // Never re-collect already completed pages
+        if (this.session.collectedPages[nextUrl]?.isComplete) {
+          this.session.queue = this.session.queue.filter(u => u !== nextUrl);
+          if (this.session.discoveredPages[nextUrl]) {
+            this.session.discoveredPages[nextUrl].status = 'completed';
+          }
+          await this.saveAndNotify();
+          continue;
+        }
+
         const nextTarget = this.session.discoveredPages[nextUrl];
         const nextTitle = nextTarget ? nextTarget.title : nextUrl;
+
+        // Loop detection: Track navigation attempts to nextUrl
+        const attempts = (this.navigationAttempts.get(nextUrl) || 0) + 1;
+        this.navigationAttempts.set(nextUrl, attempts);
+
+        if (attempts > 2) {
+          console.warn(`[DocuHarvest] Repeated navigation failure for "${nextUrl}". Dropping to avoid infinite loop.`);
+          if (nextTarget) {
+            nextTarget.status = 'failed';
+            nextTarget.error = 'Navigation failed: target URL could not be opened';
+          }
+          this.session.queue = this.session.queue.filter(u => u !== nextUrl);
+          this.session.errors.push({
+            url: nextUrl,
+            message: 'Navigation transition failed after 2 attempts',
+            timestamp: Date.now(),
+            retryable: false,
+          });
+          await this.saveAndNotify();
+          continue;
+        }
 
         this.session.activeTargetUrl = nextUrl;
         this.session.currentOperation = `Preparing navigation to "${nextTitle}"...`;
         await this.saveAndNotify();
 
-        // Rate limit delay
-        const delay = Math.max(800, this.session.config.rateLimitMs);
-        await new Promise(resolve => setTimeout(resolve, delay));
-
-        // Re-check running status after delay
-        const checkSession = await getStoredSession();
-        if (checkSession && checkSession.status !== 'running') {
+        // Rate limit delay (abortable)
+        const delay = Math.max(600, this.session.config.rateLimitMs);
+        const proceeded = await this.sleepAbortable(delay);
+        if (!proceeded || !(await this.isCoordinatorAuthoritative())) {
           break;
         }
 
-        // Navigate
+        // Navigate to next URL
         const navType = await this.navigateToPage(nextUrl);
         if (navType === 'mpa') {
-          // Hard navigation reloads window; exit loop gracefully
+          // Hard navigation triggers page reload: exit loop gracefully
           break;
         }
 
-        // SPA navigation succeeded without reloading window: continue loop
-        await new Promise(resolve => setTimeout(resolve, 600));
+        // If SPA navigation was successful or already on the page
+        const settled = await this.sleepAbortable(500);
+        if (!settled || !(await this.isCoordinatorAuthoritative())) {
+          break;
+        }
+
         this.session.currentUrl = normalizeUrl(window.location.href);
         this.session.currentPageName = (document.title || 'Documentation Page').split(/[-|–—]/)[0].trim();
         await this.saveAndNotify();
@@ -338,6 +430,8 @@ export class CollectionOrchestrator {
    * Extracts content from current page and updates queue state.
    */
   private async processCurrentPageContent(currentNormUrl: string): Promise<void> {
+    if (!(await this.isCoordinatorAuthoritative())) return;
+
     try {
       if (this.session.discoveredPages[currentNormUrl]) {
         this.session.discoveredPages[currentNormUrl].status = 'in_progress';
@@ -365,6 +459,9 @@ export class CollectionOrchestrator {
       );
 
       const collected = await Promise.race([extractionPromise, timeoutPromise]);
+
+      // Verify coordinator authority before committing extraction
+      if (!(await this.isCoordinatorAuthoritative())) return;
 
       this.session.collectedPages[currentNormUrl] = collected;
 
@@ -420,7 +517,12 @@ export class CollectionOrchestrator {
   }
 
   private async saveAndNotify(): Promise<void> {
-    await saveSession(this.session);
+    try {
+      await saveSession(this.session);
+    } catch (err: any) {
+      this.session.lastError = err?.message || 'Failed to persist session to storage';
+      this.session.currentOperation = `Storage Error: ${this.session.lastError}`;
+    }
     if (this.onStateChange) {
       this.onStateChange(this.session);
     }

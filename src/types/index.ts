@@ -23,6 +23,7 @@ export interface TabExtractionRecord {
   status: 'extracted' | 'unsafe' | 'empty';
   contentSnippet?: string;
   error?: string;
+  restored?: boolean;
 }
 
 export interface DiscoveredPage {
@@ -100,6 +101,7 @@ export interface CollectedPage {
   notes?: string[];
   tabsExtracted?: TabExtractionRecord[];
   images?: ExtractedImage[];
+  virtualizedItems?: Array<{ id: string; content: string }>;
   isComplete: boolean;
   warnings?: string[];
   extractedAt: number;
@@ -108,7 +110,7 @@ export interface CollectedPage {
 export interface HarvestConfig {
   /** Milliseconds delay between page navigations for graceful, authenticated harvesting */
   rateLimitMs: number;
-  /** Whether to scroll through long pages to trigger lazy-loaded sections */
+  /** Whether to scroll through long pages to trigger lazy-loaded sections (default false to preserve reading position) */
   autoScroll: boolean;
   /** Whether to auto-expand collapsed <details> and accordion elements in content */
   expandAccordions: boolean;
@@ -160,6 +162,7 @@ export interface HarvestSession {
   queue: string[];
   activeTargetUrl: string | null;
   activeCoordinatorToken: string | null;
+  activeTabId?: number | null;
   startedAt?: number;
   completedAt?: number;
   updatedAt: number;
@@ -170,6 +173,7 @@ export interface HarvestSession {
   config: HarvestConfig;
   errors: SessionError[];
   lastError?: string;
+  storageError?: string | null;
 }
 
 export interface SessionStats {

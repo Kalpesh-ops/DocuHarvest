@@ -67,7 +67,7 @@ export function createDefaultConfig(initialUrl: string = ''): HarvestConfig {
 
   return {
     rateLimitMs: 1200,
-    autoScroll: true,
+    autoScroll: false,
     expandAccordions: true,
     expandSidebarGroups: true,
     captureTabs: true,
@@ -112,7 +112,7 @@ export async function getStoredSession(): Promise<HarvestSession | null> {
   try {
     const data = await chrome.storage.local.get([STORAGE_KEY_SESSION]);
     return (data[STORAGE_KEY_SESSION] as HarvestSession) || null;
-  } catch (err) {
+  } catch (err: any) {
     console.error('[DocuHarvest] Error reading storage session:', err);
     return null;
   }
@@ -134,10 +134,21 @@ export async function saveSession(session: HarvestSession): Promise<void> {
     const toSave: HarvestSession = {
       ...session,
       updatedAt: Date.now(),
+      storageError: null,
     };
     await chrome.storage.local.set({ [STORAGE_KEY_SESSION]: toSave });
-  } catch (err) {
-    console.error('[DocuHarvest] Error saving session to storage:', err);
+  } catch (err: any) {
+    const errorMsg = err?.message || 'Failed to save session to storage';
+    console.error('[DocuHarvest] Error saving session to storage:', errorMsg);
+    session.storageError = errorMsg;
+    session.lastError = `Storage write error: ${errorMsg}`;
+    session.errors.push({
+      url: session.currentUrl || 'storage',
+      message: errorMsg,
+      timestamp: Date.now(),
+      retryable: true,
+    });
+    throw new Error(errorMsg);
   }
 }
 
@@ -148,7 +159,7 @@ export async function updateSessionPartial(patch: Partial<HarvestSession>): Prom
     ...patch,
     updatedAt: Date.now(),
   };
-  await chrome.storage.local.set({ [STORAGE_KEY_SESSION]: updated });
+  await saveSession(updated);
   return updated;
 }
 
