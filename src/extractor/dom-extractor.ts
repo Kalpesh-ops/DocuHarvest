@@ -92,8 +92,20 @@ export function extractInternalLinks(container: HTMLElement, baseOrigin: string)
 /**
  * Waits for dynamic page mutations to stabilize using a MutationObserver.
  * Resolves when no mutations occur for 250ms, or when timeout expires.
+function safeEscapeCss(str: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(str);
+  }
+  return str.replace(/([ #;?%&,.+*~':"!^$[\]()=>|/@])/g, '\\$1');
+}
+
+/**
+ * Waits for dynamic framework rendering and mutations to settle before extracting.
+ * Supports cancellation via AbortSignal.
  */
-export async function waitForContentStabilization(timeoutMs: number = 2500): Promise<void> {
+export async function waitForContentStabilization(timeoutMs: number = 2500, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+
   return new Promise((resolve) => {
     let timer: any = null;
     let observer: MutationObserver | null = null;
@@ -103,6 +115,10 @@ export async function waitForContentStabilization(timeoutMs: number = 2500): Pro
       if (observer) observer.disconnect();
       resolve();
     };
+
+    if (signal) {
+      signal.addEventListener('abort', cleanup, { once: true });
+    }
 
     const maxTimeout = setTimeout(cleanup, timeoutMs);
 
@@ -137,8 +153,9 @@ export async function waitForContentStabilization(timeoutMs: number = 2500): Pro
 
 /**
  * Smoothly scrolls the main viewport to trigger lazy images and code blocks.
+ * Supports cancellation via AbortSignal.
  */
-export async function triggerScrollToLoad(): Promise<void> {
+export async function triggerScrollToLoad(signal?: AbortSignal): Promise<void> {
   const scrollHeight = Math.max(
     document.body.scrollHeight,
     document.documentElement.scrollHeight
@@ -151,19 +168,32 @@ export async function triggerScrollToLoad(): Promise<void> {
   let currentScroll = 0;
 
   while (currentScroll < scrollHeight) {
+    if (signal?.aborted) break;
     currentScroll += step;
-    window.scrollTo({ top: currentScroll, behavior: 'instant' });
-    await new Promise(resolve => setTimeout(resolve, 80));
+    try {
+      window.scrollTo({ top: currentScroll, behavior: 'instant' });
+    } catch {}
+    await new Promise(resolve => {
+      const timer = setTimeout(resolve, 80);
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve(undefined);
+        }, { once: true });
+      }
+    });
   }
 }
 
 /**
  * Identifies and scrolls nested scrollable/virtualized containers within the documentation.
  * Accumulates items/batches before earlier elements unmount from the DOM.
+ * Supports cancellation via AbortSignal.
  */
 export async function handleVirtualizedAndNestedContainers(
   contentEl: HTMLElement,
-  maxSteps: number = 8
+  maxSteps: number = 8,
+  signal?: AbortSignal
 ): Promise<{ batchesCollected: number; accumulatedItems: Array<{ id: string; content: string }> }> {
   let batchesCollected = 0;
   const accumulatedMap = new Map<string, string>();
@@ -178,6 +208,7 @@ export async function handleVirtualizedAndNestedContainers(
   });
 
   for (const container of scrollables) {
+    if (signal?.aborted) break;
     const originalScroll = container.scrollTop;
     const stepSize = Math.max(container.clientHeight * 0.8, 300);
     let currentScroll = 0;
@@ -206,15 +237,26 @@ export async function handleVirtualizedAndNestedContainers(
     captureBatch();
 
     while (currentScroll < container.scrollHeight && step < maxSteps) {
+      if (signal?.aborted) break;
       currentScroll += stepSize;
       container.scrollTop = currentScroll;
       step++;
       batchesCollected++;
-      await new Promise(resolve => setTimeout(resolve, 80));
+      await new Promise(resolve => {
+        const timer = setTimeout(resolve, 80);
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            resolve(undefined);
+          }, { once: true });
+        }
+      });
       captureBatch();
     }
 
-    container.scrollTop = originalScroll;
+    try {
+      container.scrollTop = originalScroll;
+    } catch {}
   }
 
   const accumulatedItems = Array.from(accumulatedMap.values()).map((content, idx) => ({
@@ -225,9 +267,66 @@ export async function handleVirtualizedAndNestedContainers(
   return { batchesCollected, accumulatedItems };
 }
 
+function safeEscapeCss(str: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(str);
+  }
+  return str.replace(/([ #;?%&,.+*~':"!^$[\]()=>|/@])/g, '\\$1');
+}
+
 /**
- * Expands all <details> elements and collapsed accordions inside the documentation.
- * Returns a restoration function to revert initial open/closed states.
+ * Checks whether an element with aria-expanded is a recognized documentation disclosure/accordion control
+ * and strictly NOT a navigation menu, header dropdown, user profile, or action button.
+ */
+function isRecognizedDocumentationDisclosure(el: HTMLElement, container: HTMLElement): boolean {
+  if (el.id === 'docuharvest-root' || el.closest('#docuharvest-root')) return false;
+
+  // Exclude navigational, header, footer, or sidebar controls
+  const excludedContainers = 'header, footer, nav, aside, [role="navigation"], [role="menubar"], [role="menu"], [role="dialog"], [role="alertdialog"], .navbar, .header, .footer, .menu, .sidebar, .dropdown, .user-menu, .profile, .modal, .search-box, .auth';
+  if (el.closest(excludedContainers)) return false;
+
+  // Exclude dropdowns and menus with aria-haspopup
+  const popup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+  if (popup && popup !== 'false') return false;
+
+  // Exclude non-doc keywords in text / labels (e.g. user menus, search, navigation)
+  const text = ((el.getAttribute('aria-label') || '') + ' ' + (el.innerText || el.textContent || '')).toLowerCase().trim();
+  const nonDocKeywords = ['menu', 'navigation', 'search', 'sign in', 'sign out', 'login', 'logout', 'profile', 'account', 'settings', 'notification', 'theme', 'dark mode', 'light mode', 'language', 'dismiss', 'close', 'modal'];
+  for (const kw of nonDocKeywords) {
+    if (text === kw || text.startsWith(kw + ' ') || text.endsWith(' ' + kw) || text.includes(' ' + kw + ' ')) {
+      return false;
+    }
+  }
+
+  // Positive qualification:
+  // 1. Inside recognized accordion or disclosure container
+  const disclosureContainer = el.closest('.accordion, .collapsible, .disclosure, .faq, .expandable, .details, [data-accordion], [data-collapsible], .accordion-item');
+  if (disclosureContainer) return true;
+
+  // 2. Button class or data attributes indicate disclosure
+  const classNames = (el.className || '').toString();
+  if (/\b(accordion|collapsible|disclosure|expandable|toggle-collapse)\b/i.test(classNames)) return true;
+
+  // 3. aria-controls points to an element inside container that is a collapse/accordion panel
+  const controlsId = el.getAttribute('aria-controls');
+  if (controlsId) {
+    const controlled = container.querySelector(`#${safeEscapeCss(controlsId)}`);
+    if (controlled) {
+      const controlledClass = (controlled.className || '').toString().toLowerCase();
+      const controlledRole = (controlled.getAttribute('role') || '').toLowerCase();
+      if (controlledRole === 'region' || controlledClass.includes('collapse') || controlledClass.includes('accordion') || controlledClass.includes('content') || controlledClass.includes('panel')) {
+        return true;
+      }
+    }
+  }
+
+  // 4. Must be directly contained in the main documentation content
+  return container.contains(el);
+}
+
+/**
+ * Expands all <details> elements and recognized collapsed accordions inside the documentation.
+ * Reverses clicks upon restoration so host page state is never permanently altered.
  */
 export function expandAllCollapsibles(container: HTMLElement): () => void {
   const initialDetails = new Map<HTMLDetailsElement, boolean>();
@@ -240,20 +339,29 @@ export function expandAllCollapsibles(container: HTMLElement): () => void {
   });
 
   const initialAria = new Map<HTMLElement, boolean>();
+  const clickedButtons: HTMLElement[] = [];
+
   const ariaCollapsed = container.querySelectorAll<HTMLElement>(
     'button[aria-expanded], [role="button"][aria-expanded], div[aria-expanded]'
   );
+
   ariaCollapsed.forEach(el => {
-    if (el.closest('#docuharvest-root')) return;
+    if (!isRecognizedDocumentationDisclosure(el, container)) return;
+
     const wasExpanded = el.getAttribute('aria-expanded') === 'true';
     initialAria.set(el, wasExpanded);
     if (!wasExpanded) {
+      let clicked = false;
       try {
         if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
           el.click();
+          clicked = true;
         }
       } catch {
         // Ignore click issues
+      }
+      if (clicked) {
+        clickedButtons.push(el);
       }
       el.setAttribute('aria-expanded', 'true');
     }
@@ -262,6 +370,14 @@ export function expandAllCollapsibles(container: HTMLElement): () => void {
   return () => {
     for (const [details, wasOpen] of initialDetails) {
       details.open = wasOpen;
+    }
+    // Re-click opened buttons to reverse the click effect!
+    for (const btn of clickedButtons) {
+      try {
+        btn.click();
+      } catch {
+        // Ignore
+      }
     }
     for (const [el, wasExpanded] of initialAria) {
       el.setAttribute('aria-expanded', wasExpanded ? 'true' : 'false');
@@ -393,7 +509,13 @@ export function htmlToMarkdown(element: HTMLElement): {
     '[aria-hidden="true"]:not(code)', '.breadcrumbs', '.page-nav'
   ];
 
-  clone.querySelectorAll(removeSelectors.join(', ')).forEach(el => el.remove());
+  clone.querySelectorAll(removeSelectors.join(', ')).forEach(el => {
+    try {
+      el.remove();
+    } catch {
+      // Already removed by parent node
+    }
+  });
 
   const codeBlocks: CodeBlock[] = [];
   const headings: string[] = [];
@@ -703,8 +825,13 @@ export async function extractCurrentPage(
   safeTabSwitching: boolean = true,
   scrollVirtualized: boolean = true,
   maxVirtualSteps: number = 8,
-  stabilizationTimeoutMs: number = 2500
+  stabilizationTimeoutMs: number = 2500,
+  signal?: AbortSignal
 ): Promise<CollectedPage> {
+  if (signal?.aborted) {
+    throw new DOMException('Extraction aborted', 'AbortError');
+  }
+
   const currentUrl = normalizeUrl(window.location.href);
   const pageTitle = (document.title || 'Documentation Page').split(/[-|–—]/)[0].trim();
   const warnings: string[] = [];
@@ -716,11 +843,13 @@ export async function extractCurrentPage(
 
   try {
     // Step 1: Wait for rendering & dynamic hydration stabilization
-    await waitForContentStabilization(stabilizationTimeoutMs);
+    await waitForContentStabilization(stabilizationTimeoutMs, signal);
+    if (signal?.aborted) throw new DOMException('Extraction aborted', 'AbortError');
 
     // Step 2: Smooth auto-scroll only if explicitly enabled
     if (autoScroll) {
-      await triggerScrollToLoad();
+      await triggerScrollToLoad(signal);
+      if (signal?.aborted) throw new DOMException('Extraction aborted', 'AbortError');
     }
 
     // Step 3: Find main content container
@@ -734,6 +863,7 @@ export async function extractCurrentPage(
     if (expandAccordions) {
       restoreAccordions = expandAllCollapsibles(contentEl);
     }
+    if (signal?.aborted) throw new DOMException('Extraction aborted', 'AbortError');
 
     // Step 6: Handle nested scrollable / virtualized containers and accumulate items
     let virtualizedResult: { batchesCollected: number; accumulatedItems: Array<{ id: string; content: string }> } = {
@@ -741,11 +871,12 @@ export async function extractCurrentPage(
       accumulatedItems: [],
     };
     if (scrollVirtualized) {
-      virtualizedResult = await handleVirtualizedAndNestedContainers(contentEl, maxVirtualSteps);
+      virtualizedResult = await handleVirtualizedAndNestedContainers(contentEl, maxVirtualSteps, signal);
       if (virtualizedResult.batchesCollected > 0) {
         notes.push(`Scrolled and accumulated ${virtualizedResult.accumulatedItems.length} items across ${virtualizedResult.batchesCollected} virtualized batches.`);
       }
     }
+    if (signal?.aborted) throw new DOMException('Extraction aborted', 'AbortError');
 
     // Step 7: Safe tab extraction
     let tabsResult: { extractedTabs: Array<{ tabName: string; content: string }>; records: TabExtractionRecord[] } = {
@@ -754,13 +885,17 @@ export async function extractCurrentPage(
     };
 
     if (captureTabs) {
-      tabsResult = await extractAllTabsSafely(contentEl, safeTabSwitching);
+      tabsResult = await extractAllTabsSafely(contentEl, safeTabSwitching, signal);
       for (const rec of tabsResult.records) {
         if (rec.status === 'unsafe') {
           notes.push(`Tab "${rec.tabName}" was flagged as non-read-only and skipped for safety.`);
         }
+        if (rec.restored === false) {
+          notes.push(`Tab "${rec.tabName}" could not be restored to its initial state.`);
+        }
       }
     }
+    if (signal?.aborted) throw new DOMException('Extraction aborted', 'AbortError');
 
     // Step 8: Convert DOM to Markdown, extract code blocks, headings, images, and contentBlocks
     let { markdown, codeBlocks, headings, images, contentBlocks } = htmlToMarkdown(contentEl);
@@ -785,9 +920,9 @@ export async function extractCurrentPage(
       warnings.push('Low word count: page may have failed to render or requires login.');
     }
 
-    if (tabsResult.records.some(r => r.status === 'unsafe' || r.status === 'empty')) {
+    if (tabsResult.records.some(r => r.status === 'unsafe' || r.status === 'empty' || r.restored === false)) {
       isComplete = false;
-      warnings.push('One or more documentation tabs could not be fully extracted (unsafe or empty panels).');
+      warnings.push('One or more documentation tabs could not be fully extracted (unsafe or empty panels or unrestored tabs).');
     }
 
     return {
