@@ -7,13 +7,12 @@ export default defineConfig({
     description: 'Privately collect, compile, and export documentation from authenticated web sessions into clean AI-ready documents.',
     version: '0.1.0',
     permissions: [
-      'storage'
-    ],
-    host_permissions: [
-      '<all_urls>'
+      'storage',
+      'activeTab',
+      'scripting'
     ],
     action: {
-      default_title: 'DocuHarvest'
+      default_title: 'DocuHarvest — Click to activate on this documentation site'
     }
   }
 });

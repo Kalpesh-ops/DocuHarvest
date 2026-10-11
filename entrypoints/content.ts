@@ -18,8 +18,7 @@ import { exportAsCsv, exportAsJson, exportAsMarkdown } from '../src/export/expor
 import { HarvestSession } from '../src/types';
 
 export default defineContentScript({
-  matches: ['<all_urls>'],
-  runAt: 'document_idle',
+  registration: 'runtime',
   main() {
     // Only inject in top-level windows, not iframes
     if (window.self !== window.top) return;
