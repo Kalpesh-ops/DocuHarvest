@@ -509,7 +509,7 @@ describe('Phase 3 — Synthetic Extraction Fixtures & Completeness Suite', () =>
       expect(markdown).toContain('Node.js');
       expect(markdown).toContain('cURL');
       expect(markdown).toContain('## Collection & Audit Report');
-      expect(markdown).toContain('Verified Complete');
+      expect(markdown).toContain('No known incomplete pages');
 
       const jsonStr = compileStructuredJson(loadedSession!);
       const parsedJson = JSON.parse(jsonStr);

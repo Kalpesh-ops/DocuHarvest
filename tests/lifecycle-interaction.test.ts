@@ -569,6 +569,11 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
       <main id="content">
         <button id="profile-btn" aria-expanded="false" aria-controls="user-profile">User Profile</button>
         <div id="user-profile" hidden>Profile Settings</div>
+
+        <!-- Unrelated in-content controls that lack positive disclosure criteria -->
+        <button id="in-content-action" aria-expanded="false">Run Benchmark Analysis</button>
+        <button id="in-content-sorter" aria-expanded="false" aria-controls="raw-data-table">Sort Table Columns</button>
+        <table id="raw-data-table"><tr><td>Data</td></tr></table>
         
         <div class="accordion-item">
           <button id="doc-accordion" aria-expanded="false" aria-controls="faq-answer">FAQ: How does caching work?</button>
@@ -580,7 +585,15 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
     const menuBtn = document.getElementById('menu-btn') as HTMLButtonElement;
     const navDropdown = document.getElementById('nav-dropdown') as HTMLButtonElement;
     const profileBtn = document.getElementById('profile-btn') as HTMLButtonElement;
+    const inContentAction = document.getElementById('in-content-action') as HTMLButtonElement;
+    const inContentSorter = document.getElementById('in-content-sorter') as HTMLButtonElement;
     const docAccordion = document.getElementById('doc-accordion') as HTMLButtonElement;
+
+    let inContentActionClicks = 0;
+    inContentAction.addEventListener('click', () => inContentActionClicks++);
+
+    let inContentSorterClicks = 0;
+    inContentSorter.addEventListener('click', () => inContentSorterClicks++);
 
     let docClickCount = 0;
     docAccordion.addEventListener('click', () => {
@@ -591,10 +604,14 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
 
     const restore = expandAllCollapsibles(document.body);
 
-    // Menu, nav dropdown, and profile button must NOT have been expanded
+    // Menu, nav dropdown, profile button, and unrelated in-content controls must NOT have been expanded or clicked
     expect(menuBtn.getAttribute('aria-expanded')).toBe('false');
     expect(navDropdown.getAttribute('aria-expanded')).toBe('false');
     expect(profileBtn.getAttribute('aria-expanded')).toBe('false');
+    expect(inContentAction.getAttribute('aria-expanded')).toBe('false');
+    expect(inContentActionClicks).toBe(0);
+    expect(inContentSorter.getAttribute('aria-expanded')).toBe('false');
+    expect(inContentSorterClicks).toBe(0);
 
     // Genuine documentation accordion was clicked to expand
     expect(docAccordion.getAttribute('aria-expanded')).toBe('true');

@@ -83,7 +83,7 @@ export function compileMasterMarkdown(session: HarvestSession): string {
   const sourceOrigin = session.currentUrl ? new URL(session.currentUrl).origin : 'Documentation Site';
 
   const partialPagesCount = orderedPages.filter(p => !p.isComplete).length;
-  let completenessStatus = 'Verified Complete';
+  let completenessStatus = 'No known incomplete pages (all discovered pages fully extracted)';
   if (stats.failed > 0 || stats.skipped > 0 || partialPagesCount > 0) {
     const details: string[] = [];
     if (stats.failed > 0) details.push(`${stats.failed} failed`);
@@ -191,10 +191,11 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
 
   // 4. Final Collection & Audit Report
   output += `## Collection & Audit Report\n\n`;
+  output += `> **Audit Scope Note:** "No known incomplete pages" establishes that all discovered documentation pages in the collection queue were fully extracted without partial failures, extraction warnings, or skips. It measures completeness across discovered navigation, not unlinked or undiscovered pages.\n\n`;
   output += `### Summary\n\n`;
   output += `- **Total Discovered Pages:** ${stats.discovered}\n`;
   output += `- **Successfully Collected:** ${stats.collected}\n`;
-  output += `- **Verified Complete:** ${orderedPages.filter(p => p.isComplete).length}\n`;
+  output += `- **Fully Extracted Pages (No Known Incomplete Pages):** ${orderedPages.filter(p => p.isComplete).length}\n`;
   output += `- **Partial Pages:** ${partialPagesCount}\n`;
   output += `- **Skipped Pages:** ${stats.skipped}\n`;
   output += `- **Failed Pages:** ${stats.failed}\n`;
