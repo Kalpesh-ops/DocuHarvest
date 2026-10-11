@@ -11,7 +11,7 @@ import {
   computeSessionStats
 } from '../src/storage/storage';
 import { HarvestSession } from '../src/types';
-import { exportAsMarkdown, exportAsJson, exportAsCsv, formatSafeCodeBlock } from '../src/export/exporter';
+import { exportAsMarkdown, exportAsJson, exportAsCsv, formatSafeCodeBlock, compileMasterMarkdown } from '../src/export/exporter';
 import {
   expandAllCollapsibles,
   extractCurrentPage,
@@ -721,6 +721,45 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
 
     expect(session.discoveredPages[targetUrl].status).toBe('partial');
     expect(session.collectedPages[targetUrl].isComplete).toBe(false);
+  });
+
+  it('Case 31: Export completeness status explicitly differentiates clean pages from complete pages with non-fatal warnings', () => {
+    const cleanSession = createInitialSession('https://docs.site.com/intro', 'Docs');
+    cleanSession.discoveredPages = {
+      'https://docs.site.com/p1': { id: 'p1', url: 'https://docs.site.com/p1', title: 'Page 1', status: 'completed', depth: 0, discoveredAt: Date.now() },
+      'https://docs.site.com/p2': { id: 'p2', url: 'https://docs.site.com/p2', title: 'Page 2', status: 'completed', depth: 0, discoveredAt: Date.now() },
+    };
+    cleanSession.collectedPages = {
+      'https://docs.site.com/p1': { id: 'p1', url: 'https://docs.site.com/p1', title: 'Page 1', markdown: 'Clean content with lots of text to satisfy word count requirements.', wordCount: 100, headings: ['H1'], sections: [], isComplete: true, images: [], extractedAt: Date.now() },
+      'https://docs.site.com/p2': { id: 'p2', url: 'https://docs.site.com/p2', title: 'Page 2', markdown: 'More clean content with lots of text to satisfy word count requirements.', wordCount: 100, headings: ['H1'], sections: [], isComplete: true, images: [], extractedAt: Date.now() },
+    };
+    cleanSession.pagesOrder = ['https://docs.site.com/p1', 'https://docs.site.com/p2'];
+
+    // 1. Clean session export: zero warnings, zero partials, zero failures
+    const cleanMd = compileMasterMarkdown(cleanSession);
+    expect(cleanMd).toContain('> **Completeness:** No known incomplete pages or warnings');
+    expect(cleanMd).toContain('- **Fully Extracted Pages (Clean / Zero Warnings):** 2');
+    expect(cleanMd).toContain('- **Pages with Extraction Warnings:** 0');
+
+    // 2. Session with a page marked complete (isComplete: true) but containing a non-fatal extraction warning
+    const warnedSession = {
+      ...cleanSession,
+      collectedPages: {
+        'https://docs.site.com/p1': cleanSession.collectedPages['https://docs.site.com/p1'],
+        'https://docs.site.com/p2': {
+          ...cleanSession.collectedPages['https://docs.site.com/p2'],
+          warnings: ['Non-fatal: delayed script execution detected'],
+        },
+      },
+    };
+
+    const warnedMd = compileMasterMarkdown(warnedSession);
+    expect(warnedMd).toContain('> **Completeness:** Complete with warnings (1 page(s) contain extraction warnings)');
+    expect(warnedMd).not.toContain('> **Completeness:** No known incomplete pages or warnings');
+    expect(warnedMd).toContain('### Extraction Warnings');
+    expect(warnedMd).toContain('Non-fatal: delayed script execution detected');
+    expect(warnedMd).toContain('- **Fully Extracted Pages (Clean / Zero Warnings):** 1');
+    expect(warnedMd).toContain('- **Pages with Extraction Warnings:** 1');
   });
 });
 

@@ -83,13 +83,19 @@ export function compileMasterMarkdown(session: HarvestSession): string {
   const sourceOrigin = session.currentUrl ? new URL(session.currentUrl).origin : 'Documentation Site';
 
   const partialPagesCount = orderedPages.filter(p => !p.isComplete).length;
-  let completenessStatus = 'No known incomplete pages (all discovered pages fully extracted)';
+  const pagesWithWarnings = orderedPages.filter(p => p.isComplete && p.warnings && p.warnings.length > 0);
+  const warningPagesCount = pagesWithWarnings.length;
+
+  let completenessStatus = 'No known incomplete pages or warnings (all discovered pages fully extracted)';
   if (stats.failed > 0 || stats.skipped > 0 || partialPagesCount > 0) {
     const details: string[] = [];
     if (stats.failed > 0) details.push(`${stats.failed} failed`);
     if (partialPagesCount > 0) details.push(`${partialPagesCount} partial`);
     if (stats.skipped > 0) details.push(`${stats.skipped} skipped`);
+    if (warningPagesCount > 0) details.push(`${warningPagesCount} with warnings`);
     completenessStatus = `Incomplete (${details.join(', ')})`;
+  } else if (warningPagesCount > 0) {
+    completenessStatus = `Complete with warnings (${warningPagesCount} page(s) contain extraction warnings)`;
   }
 
   // 1. Frontmatter
@@ -191,15 +197,28 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
 
   // 4. Final Collection & Audit Report
   output += `## Collection & Audit Report\n\n`;
-  output += `> **Audit Scope Note:** "No known incomplete pages" establishes that all discovered documentation pages in the collection queue were fully extracted without partial failures, extraction warnings, or skips. It measures completeness across discovered navigation, not unlinked or undiscovered pages.\n\n`;
+  output += `> **Audit Scope Note:** "No known incomplete pages or warnings" establishes that all discovered documentation pages in the collection queue were fully extracted without partial extractions, skips, errors, or extraction warnings. It measures completeness across discovered navigation, not unlinked or undiscovered pages.\n\n`;
   output += `### Summary\n\n`;
   output += `- **Total Discovered Pages:** ${stats.discovered}\n`;
   output += `- **Successfully Collected:** ${stats.collected}\n`;
-  output += `- **Fully Extracted Pages (No Known Incomplete Pages):** ${orderedPages.filter(p => p.isComplete).length}\n`;
+  output += `- **Fully Extracted Pages (Clean / Zero Warnings):** ${orderedPages.filter(p => p.isComplete && (!p.warnings || p.warnings.length === 0)).length}\n`;
+  output += `- **Pages with Extraction Warnings:** ${warningPagesCount}\n`;
   output += `- **Partial Pages:** ${partialPagesCount}\n`;
   output += `- **Skipped Pages:** ${stats.skipped}\n`;
   output += `- **Failed Pages:** ${stats.failed}\n`;
   output += `- **Total Compiled Words:** ${stats.totalWords}\n\n`;
+
+  // Pages with warnings detail
+  if (pagesWithWarnings.length > 0) {
+    output += `### Extraction Warnings\n\n`;
+    output += `| Page Title | URL | Warnings |\n`;
+    output += `| --- | --- | --- |\n`;
+    pagesWithWarnings.forEach(p => {
+      const warnList = (p.warnings || []).join('; ').replace(/\|/g, '\\|');
+      output += `| ${p.title.replace(/\|/g, '\\|')} | ${p.url} | ${warnList} |\n`;
+    });
+    output += `\n`;
+  }
 
   // Failed pages detail
   if (session.errors && session.errors.length > 0) {
