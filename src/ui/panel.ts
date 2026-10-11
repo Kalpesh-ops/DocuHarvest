@@ -32,8 +32,12 @@ export class PanelController {
    */
   public mount(): void {
     const existing = document.getElementById('docuharvest-root');
-    if (existing) {
-      existing.remove();
+    if (existing && existing.parentNode) {
+      try {
+        existing.parentNode.removeChild(existing);
+      } catch {
+        // Already removed
+      }
     }
 
     this.host = document.createElement('div');
@@ -67,7 +71,7 @@ export class PanelController {
 
     this.render(this.session);
 
-    const mountTarget = document.documentElement || document.body;
+    const mountTarget = document.body || document.documentElement;
     mountTarget.appendChild(this.host);
   }
 
@@ -173,6 +177,8 @@ export class PanelController {
 
         if (page.status === 'completed') {
           metaHtml = `<span class="dh-queue-meta">${page.wordCount || 0}w</span>`;
+        } else if (page.status === 'partial') {
+          metaHtml = `<span class="dh-queue-meta" style="color: #f59e0b;" title="${this.escapeHtml(page.warning || 'Partial extraction')}">Partial (${page.wordCount || 0}w)</span>`;
         } else if (page.status === 'in_progress') {
           metaHtml = `<span class="dh-queue-meta" style="color: #38bdf8;">Extracting</span>`;
         } else if (page.status === 'failed') {

@@ -14,6 +14,7 @@ export type PageStatus =
   | 'pending'
   | 'in_progress'
   | 'completed'
+  | 'partial'
   | 'failed'
   | 'skipped';
 

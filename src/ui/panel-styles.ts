@@ -451,6 +451,7 @@ export const PANEL_CSS = `
 .dh-dot-pending { background: #64748b; }
 .dh-dot-in_progress { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
 .dh-dot-completed { background: #10b981; }
+.dh-dot-partial { background: #f59e0b; box-shadow: 0 0 4px rgba(245, 158, 11, 0.5); }
 .dh-dot-failed { background: #ef4444; }
 .dh-dot-skipped { background: #f59e0b; }
 

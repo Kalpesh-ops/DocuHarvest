@@ -4,7 +4,7 @@
  * race-safe coordinator verification, bounded retries, loop prevention, and prompt interruption on pause/stop.
  */
 
-import { DiscoveredPage, HarvestSession } from '../types';
+import { DiscoveredPage, HarvestSession, CollectedPage } from '../types';
 import {
   computeSessionStats,
   normalizeUrl,
@@ -353,11 +353,12 @@ export class CollectionOrchestrator {
         // Pick next URL
         const nextUrl = this.session.queue[0];
 
-        // Never re-collect already completed pages
-        if (this.session.collectedPages[nextUrl]?.isComplete) {
+        // Never re-collect already collected pages
+        if (this.session.collectedPages[nextUrl]) {
+          const isComp = this.session.collectedPages[nextUrl].isComplete;
           this.session.queue = this.session.queue.filter(u => u !== nextUrl);
           if (this.session.discoveredPages[nextUrl]) {
-            this.session.discoveredPages[nextUrl].status = 'completed';
+            this.session.discoveredPages[nextUrl].status = isComp ? 'completed' : 'partial';
           }
           await this.saveAndNotify();
           continue;
@@ -440,6 +441,18 @@ export class CollectionOrchestrator {
 
       this.emitUpdate('Auto-scrolling, expanding accordions & extracting tabs...');
 
+      const extractionAbortController = new AbortController();
+      const onGlobalAbort = () => extractionAbortController.abort();
+      this.abortController?.signal.addEventListener('abort', onGlobalAbort, { once: true });
+
+      let timeoutId: any;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          extractionAbortController.abort();
+          reject(new Error(`Page extraction timed out after ${this.session.config.pageExtractionTimeoutMs}ms`));
+        }, this.session.config.pageExtractionTimeoutMs);
+      });
+
       const extractionPromise = extractCurrentPage(
         this.session.config.contentSelector,
         this.session.config.autoScroll,
@@ -448,17 +461,17 @@ export class CollectionOrchestrator {
         this.session.config.safeTabSwitching,
         this.session.config.scrollVirtualizedContainers,
         this.session.config.maxVirtualScrollSteps,
-        this.session.config.stabilizationTimeoutMs
+        this.session.config.stabilizationTimeoutMs,
+        extractionAbortController.signal
       );
 
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`Page extraction timed out after ${this.session.config.pageExtractionTimeoutMs}ms`)),
-          this.session.config.pageExtractionTimeoutMs
-        )
-      );
-
-      const collected = await Promise.race([extractionPromise, timeoutPromise]);
+      let collected: CollectedPage;
+      try {
+        collected = await Promise.race([extractionPromise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutId);
+        this.abortController?.signal.removeEventListener('abort', onGlobalAbort);
+      }
 
       // Verify coordinator authority before committing extraction
       if (!(await this.isCoordinatorAuthoritative())) return;
@@ -466,7 +479,7 @@ export class CollectionOrchestrator {
       this.session.collectedPages[currentNormUrl] = collected;
 
       if (this.session.discoveredPages[currentNormUrl]) {
-        this.session.discoveredPages[currentNormUrl].status = 'completed';
+        this.session.discoveredPages[currentNormUrl].status = collected.isComplete ? 'completed' : 'partial';
         this.session.discoveredPages[currentNormUrl].collectedAt = Date.now();
         this.session.discoveredPages[currentNormUrl].wordCount = collected.wordCount;
         this.session.discoveredPages[currentNormUrl].warning = collected.warnings?.[0];
@@ -476,10 +489,20 @@ export class CollectionOrchestrator {
 
       const stats = computeSessionStats(this.session);
       this.session.progressPercentage = stats.progressPercentage;
-      this.session.currentOperation = `Collected "${collected.title}" (${collected.wordCount} words).`;
+      const completenessLabel = collected.isComplete ? 'Collected' : 'Partially collected';
+      this.session.currentOperation = `${completenessLabel} "${collected.title}" (${collected.wordCount} words).`;
 
       await this.saveAndNotify();
     } catch (err: any) {
+      if (this.abortController?.signal.aborted || err?.name === 'AbortError') {
+        const page = this.session.discoveredPages[currentNormUrl];
+        if (page && page.status === 'in_progress') {
+          page.status = 'pending';
+        }
+        await this.saveAndNotify();
+        return;
+      }
+
       console.error('[DocuHarvest] Error extracting page:', err);
       const page = this.session.discoveredPages[currentNormUrl];
       const errorMsg = err?.message || 'Extraction failed';
