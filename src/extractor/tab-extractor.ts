@@ -1,7 +1,8 @@
 /**
  * DocuHarvest - Safe Tab Extraction Engine
- * Inspects tab controls, validates read-only safety, captures inactive panels,
- * and restores the original active tab and scroll position.
+ * Inspects tab controls, validates read-only safety, captures inactive panels without clicking when possible,
+ * ensures tabs belonging to independent groups are mapped strictly within their container,
+ * preserves original active tab, and verifies restoration.
  */
 
 import { TabExtractionRecord } from '../types';
@@ -9,7 +10,7 @@ import { TabExtractionRecord } from '../types';
 const UNSAFE_TAB_KEYWORDS = [
   'delete', 'remove', 'destroy', 'cancel', 'logout', 'signout', 'exit',
   'submit', 'checkout', 'pay', 'purchase', 'buy', 'order', 'upgrade',
-  'install-app', 'connect-wallet'
+  'install-app', 'connect-wallet', 'deploy', 'terminate', 'kill', 'purge'
 ];
 
 export interface ExtractedTabGroup {
@@ -22,6 +23,10 @@ export interface ExtractedTabGroup {
  * Checks if a tab button is a safe, read-only documentation switcher.
  */
 export function isSafeDocumentationTab(button: HTMLElement): boolean {
+  if (button.id === 'docuharvest-root' || button.closest('#docuharvest-root')) {
+    return false;
+  }
+
   // If it's an anchor, check if it points to another page or external site
   if (button.tagName === 'A') {
     const href = (button.getAttribute('href') || '').trim();
@@ -32,14 +37,19 @@ export function isSafeDocumentationTab(button: HTMLElement): boolean {
   }
 
   // Check button type
-  if (button.getAttribute('type') === 'submit') {
+  if (button.getAttribute('type') === 'submit' || button.getAttribute('type') === 'reset') {
+    return false;
+  }
+
+  // Check form association
+  if (button.closest('form')) {
     return false;
   }
 
   // Check text content or aria-label for destructive keywords
-  const text = (button.getAttribute('aria-label') || button.innerText || button.textContent || '').toLowerCase();
+  const text = (button.getAttribute('aria-label') || button.innerText || button.textContent || '').toLowerCase().trim();
   for (const keyword of UNSAFE_TAB_KEYWORDS) {
-    if (text.includes(keyword)) {
+    if (text === keyword || text.startsWith(keyword + ' ') || text.endsWith(' ' + keyword) || text.includes(' ' + keyword + ' ')) {
       return false;
     }
   }
@@ -47,30 +57,44 @@ export function isSafeDocumentationTab(button: HTMLElement): boolean {
   return true;
 }
 
+function safeEscapeCss(str: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+    return CSS.escape(str);
+  }
+  return str.replace(/([ #;?%&,.+*~':"!^$[\]()=>|/@])/g, '\\$1');
+}
+
 /**
- * Finds the tabpanel associated with a given tab button.
+ * Finds the tabpanel associated with a given tab button strictly within its tab group boundary.
  */
-function findAssociatedPanel(btn: HTMLElement, container: HTMLElement): HTMLElement | null {
+function findAssociatedPanel(btn: HTMLElement, groupContainer: HTMLElement): HTMLElement | null {
   // Method 1: aria-controls
   const controlsId = btn.getAttribute('aria-controls');
   if (controlsId) {
-    const panel = document.getElementById(controlsId);
-    if (panel) return panel;
+    const panel = groupContainer.querySelector<HTMLElement>(`#${safeEscapeCss(controlsId)}`) || document.getElementById(controlsId);
+    if (panel && !panel.closest('#docuharvest-root')) return panel;
   }
 
   // Method 2: aria-labelledby match
   const btnId = btn.id;
   if (btnId) {
-    const panel = document.querySelector<HTMLElement>(`[role="tabpanel"][aria-labelledby="${btnId}"]`);
-    if (panel) return panel;
+    const panel = groupContainer.querySelector<HTMLElement>(`[role="tabpanel"][aria-labelledby="${safeEscapeCss(btnId)}"]`);
+    if (panel && !panel.closest('#docuharvest-root')) return panel;
   }
 
-  // Method 3: Neighboring tabpanel within the tablist parent
-  const parent = btn.closest('[role="tablist"], .tabs, .tab-group')?.parentElement;
-  if (parent) {
-    const panels = Array.from(parent.querySelectorAll<HTMLElement>('[role="tabpanel"], .tab-pane, .tab-content > div'));
-    const btnIndex = Array.from(btn.parentElement?.children || []).indexOf(btn);
-    if (panels[btnIndex]) return panels[btnIndex];
+  // Method 3: Neighboring tabpanel within the tablist group container
+  const tabList = btn.closest('[role="tablist"], .tabs, .tab-group, .tabs-container') || btn.parentElement;
+  if (tabList) {
+    const panels = Array.from(groupContainer.querySelectorAll<HTMLElement>('[role="tabpanel"], .tab-pane, .tab-content > div, .tabs__content > div'))
+      .filter(p => !p.closest('#docuharvest-root'));
+
+    const buttons = Array.from(tabList.querySelectorAll<HTMLElement>('[role="tab"], button, .tab-item, a'))
+      .filter(b => !b.closest('#docuharvest-root'));
+
+    const btnIndex = buttons.indexOf(btn);
+    if (btnIndex !== -1 && panels[btnIndex]) {
+      return panels[btnIndex];
+    }
   }
 
   return null;
@@ -91,13 +115,15 @@ export async function extractAllTabsSafely(
     contentContainer.querySelectorAll<HTMLElement>(
       '[role="tablist"], .tabs, .tab-group, .nav-tabs, .tabs-container, ul[class*="tabs" i]'
     )
-  );
+  ).filter(tl => !tl.closest('#docuharvest-root'));
 
   for (let groupIdx = 0; groupIdx < tabLists.length; groupIdx++) {
     const tabList = tabLists[groupIdx];
+    const groupContainer = tabList.closest('.tabs-group, .tab-container, .tabs-wrapper, [class*="tabs-container"]') || tabList.parentElement || contentContainer;
+
     const buttons = Array.from(
-      tabList.querySelectorAll<HTMLElement>('[role="tab"], button.tab, .tab-item, button[class*="tab" i], li > a')
-    );
+      tabList.querySelectorAll<HTMLElement>('[role="tab"], button.tab, .tab-item, button[class*="tab" i], li > a, button')
+    ).filter(b => !b.closest('#docuharvest-root'));
 
     if (buttons.length <= 1) continue;
 
@@ -130,13 +156,13 @@ export async function extractAllTabsSafely(
           tabGroupIndex: groupIdx,
           tabName,
           status: 'unsafe',
-          error: 'Skipped tab click: contains potential action or external link',
+          error: 'Skipped tab click: contains potential action or form control',
         });
         continue;
       }
 
       // 2. Check if panel is already accessible in DOM without clicking
-      let panel = findAssociatedPanel(btn, contentContainer);
+      let panel = findAssociatedPanel(btn, groupContainer as HTMLElement);
       let panelText = panel ? (panel.innerText || panel.textContent || '').trim() : '';
 
       if (panelText && panelText.length > 0) {
@@ -146,6 +172,7 @@ export async function extractAllTabsSafely(
           tabName,
           status: 'extracted',
           contentSnippet: panelText.substring(0, 80),
+          restored: true,
         });
         continue;
       }
@@ -157,10 +184,10 @@ export async function extractAllTabsSafely(
           // Short pause for dynamic framework render
           await new Promise(resolve => setTimeout(resolve, 150));
 
-          panel = findAssociatedPanel(btn, contentContainer);
-          // Fallback: query active tabpanel
+          panel = findAssociatedPanel(btn, groupContainer as HTMLElement);
+          // Fallback: query active tabpanel strictly inside the group container
           if (!panel) {
-            panel = contentContainer.querySelector<HTMLElement>(
+            panel = (groupContainer as HTMLElement).querySelector<HTMLElement>(
               '[role="tabpanel"]:not([hidden]), .tab-pane.active, .tab-content > div:not([style*="display: none"])'
             );
           }
@@ -201,13 +228,32 @@ export async function extractAllTabsSafely(
       }
     }
 
-    // 4. Restore original active tab & scroll position
+    // 4. Restore original active tab & verify restoration
+    let restored = true;
     if (originalActiveBtn && enableSafeClicking) {
       try {
         originalActiveBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 60));
+        await new Promise(resolve => setTimeout(resolve, 80));
+
+        const isSelected =
+          originalActiveBtn.getAttribute('aria-selected') === 'true' ||
+          originalActiveBtn.classList.contains('active') ||
+          originalActiveBtn.classList.contains('is-active') ||
+          originalActiveBtn.classList.contains('selected');
+
+        if (!isSelected) {
+          originalActiveBtn.click();
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
       } catch {
-        // ignore restore click issue
+        restored = false;
+      }
+    }
+
+    // Mark restoration status on records
+    for (const rec of records) {
+      if (rec.tabGroupIndex === groupIdx && rec.status === 'extracted') {
+        rec.restored = restored;
       }
     }
 

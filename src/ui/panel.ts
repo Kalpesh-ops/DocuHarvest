@@ -72,6 +72,23 @@ export class PanelController {
   }
 
   /**
+   * Destroys or removes the panel from the DOM safely.
+   */
+  public destroy(): void {
+    if (this.host && this.host.parentNode) {
+      try {
+        this.host.parentNode.removeChild(this.host);
+      } catch {
+        // Already removed
+      }
+    }
+  }
+
+  public unmount(): void {
+    this.destroy();
+  }
+
+  /**
    * Updates the panel with latest session state.
    */
   public render(session: HarvestSession): void {
@@ -553,12 +570,5 @@ export class PanelController {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
-
-  public destroy(): void {
-    if (this.host) {
-      this.host.remove();
-      this.host = null;
-    }
   }
 }

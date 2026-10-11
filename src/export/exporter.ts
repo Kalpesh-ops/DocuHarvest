@@ -6,7 +6,7 @@
  *  - documentation-bundle.csv (Tabular spreadsheet & RAG format)
  */
 
-import { HarvestSession } from '../types';
+import { HarvestSession, CollectedPage } from '../types';
 import { computeSessionStats } from '../storage/storage';
 
 export function slugify(text: string): string {
@@ -48,28 +48,45 @@ export function formatSafeCodeBlock(code: string, language: string = ''): string
 }
 
 /**
- * Compiles all collected pages into a unified, AI-ready Master Markdown document
- * (documentation-bundle.md) with frontmatter, Table of Contents, tab sections,
- * and a final collection audit report.
+ * Extracts collected pages preserving discovery order, falling back to all collected pages.
  */
-export function compileMasterMarkdown(session: HarvestSession): string {
-  const stats = computeSessionStats(session);
+export function getOrderedCollectedPages(session: HarvestSession): CollectedPage[] {
   const collectedList = Object.values(session.collectedPages);
-
-  // Preserve discovery/sidebar reading order
-  const orderedPages = session.pagesOrder
+  const orderedPages = (session.pagesOrder || [])
     .map(url => session.collectedPages[url])
     .filter(Boolean);
 
-  const orderedUrls = new Set(session.pagesOrder);
+  const orderedUrls = new Set(session.pagesOrder || []);
   for (const page of collectedList) {
     if (!orderedUrls.has(page.url)) {
       orderedPages.push(page);
     }
   }
 
+  return orderedPages;
+}
+
+/**
+ * Compiles all collected pages into a unified, AI-ready Master Markdown document
+ * (documentation-bundle.md) with frontmatter, Table of Contents, tab sections,
+ * and a final collection audit report.
+ */
+export function compileMasterMarkdown(session: HarvestSession): string {
+  const stats = computeSessionStats(session);
+  const orderedPages = getOrderedCollectedPages(session);
+
   const exportDate = new Date().toISOString();
   const sourceOrigin = session.currentUrl ? new URL(session.currentUrl).origin : 'Documentation Site';
+
+  const partialPagesCount = orderedPages.filter(p => !p.isComplete).length;
+  let completenessStatus = 'Verified Complete';
+  if (stats.failed > 0 || stats.skipped > 0 || partialPagesCount > 0) {
+    const details: string[] = [];
+    if (stats.failed > 0) details.push(`${stats.failed} failed`);
+    if (partialPagesCount > 0) details.push(`${partialPagesCount} partial`);
+    if (stats.skipped > 0) details.push(`${stats.skipped} skipped`);
+    completenessStatus = `Incomplete (${details.join(', ')})`;
+  }
 
   // 1. Frontmatter
   let output = `---
@@ -87,7 +104,7 @@ bundle_version: "1.0.0"
 > **Source Origin:** ${sourceOrigin}  
 > **Generation Date:** ${new Date().toLocaleString()}  
 > **Total Pages:** ${orderedPages.length} | **Total Word Count:** ~${stats.totalWords} words  
-> **Completeness:** ${stats.failed === 0 ? 'Verified Complete' : `${stats.failed} page(s) failed`}  
+> **Completeness:** ${completenessStatus}  
 
 This compiled documentation file is formatted specifically for AI Agent ingestion, semantic context, and technical analysis.
 
@@ -104,7 +121,7 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
     output += `${index + 1}. [${page.title}](#${anchor})${breadcrumbStr} — *${page.wordCount} words*\n`;
 
     if (page.headings && page.headings.length > 0) {
-      page.headings.slice(0, 6).forEach(h => {
+      page.headings.slice(0, 6).forEach((h: string) => {
         const subAnchor = slugify(h);
         output += `   - [${h}](#${subAnchor})\n`;
       });
@@ -150,7 +167,7 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
     if (page.notes && page.notes.length > 0) {
       output += `\n\n> [!NOTE]\n`;
       output += `> **Extraction Notes:**  \n`;
-      page.notes.forEach(note => {
+      page.notes.forEach((note: string) => {
         output += `> - ${note}\n`;
       });
       output += `\n`;
@@ -159,7 +176,7 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
     // Internal links references
     if (page.internalLinks && page.internalLinks.length > 0) {
       output += `\n\n<details>\n<summary>Referenced Internal Links (${page.internalLinks.length})</summary>\n\n`;
-      page.internalLinks.slice(0, 15).forEach(link => {
+      page.internalLinks.slice(0, 15).forEach((link: { text: string; url: string }) => {
         output += `- [${link.text}](${link.url})\n`;
       });
       output += `\n</details>\n\n`;
@@ -173,6 +190,8 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
   output += `### Summary\n\n`;
   output += `- **Total Discovered Pages:** ${stats.discovered}\n`;
   output += `- **Successfully Collected:** ${stats.collected}\n`;
+  output += `- **Verified Complete:** ${orderedPages.filter(p => p.isComplete).length}\n`;
+  output += `- **Partial Pages:** ${partialPagesCount}\n`;
   output += `- **Skipped Pages:** ${stats.skipped}\n`;
   output += `- **Failed Pages:** ${stats.failed}\n`;
   output += `- **Total Compiled Words:** ${stats.totalWords}\n\n`;
@@ -213,9 +232,7 @@ This compiled documentation file is formatted specifically for AI Agent ingestio
  */
 export function compileStructuredJson(session: HarvestSession): string {
   const stats = computeSessionStats(session);
-  const orderedPages = session.pagesOrder
-    .map(url => session.collectedPages[url])
-    .filter(Boolean);
+  const orderedPages = getOrderedCollectedPages(session);
 
   const payload = {
     metadata: {
@@ -228,6 +245,8 @@ export function compileStructuredJson(session: HarvestSession): string {
         totalWords: stats.totalWords,
         discoveredPages: stats.discovered,
         collectedPages: stats.collected,
+        completedPages: orderedPages.filter(p => p.isComplete).length,
+        partialPages: orderedPages.filter(p => !p.isComplete).length,
         failedPages: stats.failed,
         skippedPages: stats.skipped,
       },
@@ -264,9 +283,7 @@ export function compileStructuredJson(session: HarvestSession): string {
  * with UTF-8 BOM so Excel, Google Sheets, Python, and R handle all Unicode correctly.
  */
 export function compileStructuredCsv(session: HarvestSession): string {
-  const orderedPages = session.pagesOrder
-    .map(url => session.collectedPages[url])
-    .filter(Boolean);
+  const orderedPages = getOrderedCollectedPages(session);
 
   const headers = [
     'page_index',

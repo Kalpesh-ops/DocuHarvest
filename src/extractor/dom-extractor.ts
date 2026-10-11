@@ -2,9 +2,10 @@
  * DocuHarvest - Complete DOM Extraction Engine
  * Stabilizes rendering, expands accordions, captures tabs, scrolls virtualized lists,
  * converts structured HTML to rich Markdown, builds ContentBlocks, and detects completeness.
+ * Strictly isolates and excludes the extension's own Shadow DOM.
  */
 
-import { CodeBlock, CollectedPage, ContentBlock, ExtractedImage, SectionContent } from '../types';
+import { CodeBlock, CollectedPage, ContentBlock, ExtractedImage, SectionContent, TabExtractionRecord } from '../types';
 import { normalizeUrl } from '../storage/storage';
 import { extractAllTabsSafely } from './tab-extractor';
 
@@ -39,8 +40,9 @@ const BREADCRUMB_SELECTORS = [
 export function extractBreadcrumbs(root: Document | HTMLElement = document): string[] {
   for (const selector of BREADCRUMB_SELECTORS) {
     const el = root.querySelector<HTMLElement>(selector);
-    if (el) {
+    if (el && !el.closest('#docuharvest-root')) {
       const items = Array.from(el.querySelectorAll('li, a, span'))
+        .filter(item => !item.closest('#docuharvest-root'))
         .map(i => (i.textContent || '').trim())
         .filter(t => t.length > 0 && t !== '/' && t !== '>' && t !== '»');
       // Deduplicate consecutive items
@@ -66,6 +68,8 @@ export function extractInternalLinks(container: HTMLElement, baseOrigin: string)
   const anchors = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href]'));
 
   for (const a of anchors) {
+    if (a.id === 'docuharvest-root' || a.closest('#docuharvest-root')) continue;
+
     const href = a.getAttribute('href');
     if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:')) continue;
 
@@ -102,7 +106,11 @@ export async function waitForContentStabilization(timeoutMs: number = 2500): Pro
 
     const maxTimeout = setTimeout(cleanup, timeoutMs);
 
-    const onMutation = () => {
+    const onMutation = (mutations: MutationRecord[]) => {
+      // Ignore mutations originating entirely from DocuHarvest panel
+      const relevant = mutations.some(m => !(m.target as HTMLElement)?.closest?.('#docuharvest-root'));
+      if (!relevant) return;
+
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         clearTimeout(maxTimeout);
@@ -145,26 +153,27 @@ export async function triggerScrollToLoad(): Promise<void> {
   while (currentScroll < scrollHeight) {
     currentScroll += step;
     window.scrollTo({ top: currentScroll, behavior: 'instant' });
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 80));
   }
-
-  window.scrollTo({ top: 0, behavior: 'instant' });
-  await new Promise(resolve => setTimeout(resolve, 80));
 }
 
 /**
  * Identifies and scrolls nested scrollable/virtualized containers within the documentation.
+ * Accumulates items/batches before earlier elements unmount from the DOM.
  */
 export async function handleVirtualizedAndNestedContainers(
   contentEl: HTMLElement,
   maxSteps: number = 8
-): Promise<{ batchesCollected: number }> {
+): Promise<{ batchesCollected: number; accumulatedItems: Array<{ id: string; content: string }> }> {
   let batchesCollected = 0;
+  const accumulatedMap = new Map<string, string>();
 
-  const scrollables = Array.from(contentEl.querySelectorAll<HTMLElement>('*')).filter(el => {
+  const candidates = [contentEl, ...Array.from(contentEl.querySelectorAll<HTMLElement>('*'))];
+  const scrollables = candidates.filter(el => {
     if (el.id === 'docuharvest-root' || el.closest('#docuharvest-root')) return false;
-    const style = window.getComputedStyle(el);
-    const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 150;
+    const style = typeof window.getComputedStyle === 'function' ? window.getComputedStyle(el) : null;
+    const overflowY = (style?.overflowY || el.style?.overflowY || '').toLowerCase();
+    const isScrollable = (overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 150;
     return isScrollable;
   });
 
@@ -174,45 +183,90 @@ export async function handleVirtualizedAndNestedContainers(
     let currentScroll = 0;
     let step = 0;
 
+    const captureBatch = () => {
+      const rows = Array.from(
+        container.querySelectorAll<HTMLElement>('tr, li, [role="row"], [role="listitem"], .virtual-item, .list-item')
+      ).filter(r => !r.closest('#docuharvest-root'));
+
+      if (rows.length > 0) {
+        for (const row of rows) {
+          const text = (row.textContent || '').replace(/\s+/g, ' ').trim();
+          if (text.length > 0 && !accumulatedMap.has(text)) {
+            accumulatedMap.set(text, text);
+          }
+        }
+      } else {
+        const text = (container.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text.length > 0 && !accumulatedMap.has(text)) {
+          accumulatedMap.set(text, text);
+        }
+      }
+    };
+
+    captureBatch();
+
     while (currentScroll < container.scrollHeight && step < maxSteps) {
       currentScroll += stepSize;
       container.scrollTop = currentScroll;
       step++;
       batchesCollected++;
       await new Promise(resolve => setTimeout(resolve, 80));
+      captureBatch();
     }
 
     container.scrollTop = originalScroll;
   }
 
-  return { batchesCollected };
+  const accumulatedItems = Array.from(accumulatedMap.values()).map((content, idx) => ({
+    id: `virt_${idx + 1}`,
+    content,
+  }));
+
+  return { batchesCollected, accumulatedItems };
 }
 
 /**
  * Expands all <details> elements and collapsed accordions inside the documentation.
+ * Returns a restoration function to revert initial open/closed states.
  */
-export function expandAllCollapsibles(container: HTMLElement): void {
-  const detailsList = container.querySelectorAll<HTMLDetailsElement>('details');
-  detailsList.forEach(details => {
+export function expandAllCollapsibles(container: HTMLElement): () => void {
+  const initialDetails = new Map<HTMLDetailsElement, boolean>();
+  container.querySelectorAll<HTMLDetailsElement>('details').forEach(details => {
+    if (details.closest('#docuharvest-root')) return;
+    initialDetails.set(details, details.open);
     if (!details.open) {
       details.open = true;
     }
   });
 
+  const initialAria = new Map<HTMLElement, boolean>();
   const ariaCollapsed = container.querySelectorAll<HTMLElement>(
-    'button[aria-expanded="false"], [role="button"][aria-expanded="false"], div[aria-expanded="false"]'
+    'button[aria-expanded], [role="button"][aria-expanded], div[aria-expanded]'
   );
   ariaCollapsed.forEach(el => {
-    try {
-      if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
-        el.click();
-      } else {
-        el.setAttribute('aria-expanded', 'true');
+    if (el.closest('#docuharvest-root')) return;
+    const wasExpanded = el.getAttribute('aria-expanded') === 'true';
+    initialAria.set(el, wasExpanded);
+    if (!wasExpanded) {
+      try {
+        if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
+          el.click();
+        }
+      } catch {
+        // Ignore click issues
       }
-    } catch {
-      // Ignore click issues
+      el.setAttribute('aria-expanded', 'true');
     }
   });
+
+  return () => {
+    for (const [details, wasOpen] of initialDetails) {
+      details.open = wasOpen;
+    }
+    for (const [el, wasExpanded] of initialAria) {
+      el.setAttribute('aria-expanded', wasExpanded ? 'true' : 'false');
+    }
+  };
 }
 
 /**
@@ -221,13 +275,13 @@ export function expandAllCollapsibles(container: HTMLElement): void {
 export function findMainContentElement(customSelector?: string): HTMLElement {
   if (customSelector) {
     const el = document.querySelector<HTMLElement>(customSelector);
-    if (el) return el;
+    if (el && !el.closest('#docuharvest-root')) return el;
   }
 
   for (const selector of CONTENT_SELECTORS) {
     const el = document.querySelector<HTMLElement>(selector);
     const text = (el?.innerText || el?.textContent || '').trim();
-    if (el && !el.hidden && el.style.display !== 'none' && text.length > 20) {
+    if (el && !el.closest('#docuharvest-root') && !el.hidden && el.style.display !== 'none' && text.length > 20) {
       return el;
     }
   }
@@ -334,7 +388,7 @@ export function htmlToMarkdown(element: HTMLElement): {
   const removeSelectors = [
     'script', 'style', 'noscript', 'iframe', 'svg:not([data-diagram])',
     'form', 'input', 'select', 'textarea',
-    '.docuharvest-ui', '#docuharvest-root',
+    '.docuharvest-ui', '#docuharvest-root', '[id*="docuharvest"]', '[class*="dh-"]',
     '.feedback-widget', '.copy-button', '.btn-copy',
     '[aria-hidden="true"]:not(code)', '.breadcrumbs', '.page-nav'
   ];
@@ -567,10 +621,12 @@ export function htmlToMarkdown(element: HTMLElement): {
  */
 export function extractSections(contentEl: HTMLElement): SectionContent[] {
   const sections: SectionContent[] = [];
-  const headingElements = Array.from(contentEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4'));
+  const headingElements = Array.from(
+    contentEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4')
+  ).filter(h => !h.closest('#docuharvest-root'));
 
   if (headingElements.length === 0) {
-    const text = (contentEl.innerText || '').trim();
+    const text = (contentEl.innerText || contentEl.textContent || '').trim();
     sections.push({
       heading: 'Overview',
       level: 1,
@@ -593,6 +649,10 @@ export function extractSections(contentEl: HTMLElement): SectionContent[] {
       if (current.nodeType === Node.ELEMENT_NODE) {
         const el = current as HTMLElement;
         if (/^H[1-6]$/.test(el.tagName)) break;
+        if (el.id === 'docuharvest-root' || el.closest('#docuharvest-root')) {
+          current = current.nextSibling;
+          continue;
+        }
 
         sectionText += ' ' + (el.innerText || el.textContent || '');
 
@@ -600,7 +660,7 @@ export function extractSections(contentEl: HTMLElement): SectionContent[] {
         if (el.tagName === 'PRE') {
           preElements.push(el);
         }
-        preElements.push(...Array.from(el.querySelectorAll<HTMLElement>('pre')));
+        preElements.push(...Array.from(el.querySelectorAll<HTMLElement>('pre')).filter(p => !p.closest('#docuharvest-root')));
 
         for (const pre of preElements) {
           const codeEl = pre.querySelector('code') || pre;
@@ -637,7 +697,7 @@ export function extractSections(contentEl: HTMLElement): SectionContent[] {
  */
 export async function extractCurrentPage(
   customContentSelector?: string,
-  autoScroll: boolean = true,
+  autoScroll: boolean = false,
   expandAccordions: boolean = true,
   captureTabs: boolean = true,
   safeTabSwitching: boolean = true,
@@ -650,81 +710,116 @@ export async function extractCurrentPage(
   const warnings: string[] = [];
   const notes: string[] = [];
 
-  // Step 1: Wait for rendering & dynamic hydration stabilization
-  await waitForContentStabilization(stabilizationTimeoutMs);
+  const initialScrollX = window.scrollX;
+  const initialScrollY = window.scrollY;
+  let restoreAccordions: (() => void) | null = null;
 
-  // Step 2: Smooth auto-scroll for main viewport lazy items
-  if (autoScroll) {
-    await triggerScrollToLoad();
-  }
+  try {
+    // Step 1: Wait for rendering & dynamic hydration stabilization
+    await waitForContentStabilization(stabilizationTimeoutMs);
 
-  // Step 3: Find main content container
-  const contentEl = findMainContentElement(customContentSelector);
-
-  // Step 4: Extract Breadcrumbs & Internal Links
-  const breadcrumbs = extractBreadcrumbs(document);
-  const internalLinks = extractInternalLinks(contentEl, window.location.origin);
-
-  // Step 5: Expand hidden details & accordions
-  if (expandAccordions) {
-    expandAllCollapsibles(contentEl);
-  }
-
-  // Step 6: Handle nested scrollable / virtualized containers
-  if (scrollVirtualized) {
-    const { batchesCollected } = await handleVirtualizedAndNestedContainers(contentEl, maxVirtualSteps);
-    if (batchesCollected > 0) {
-      notes.push(`Scrolled and extracted ${batchesCollected} batches from nested scrollable regions.`);
+    // Step 2: Smooth auto-scroll only if explicitly enabled
+    if (autoScroll) {
+      await triggerScrollToLoad();
     }
-  }
 
-  // Step 7: Safe tab extraction
-  let tabsResult: { extractedTabs: Array<{ tabName: string; content: string }>; records: any[] } = {
-    extractedTabs: [],
-    records: [],
-  };
+    // Step 3: Find main content container
+    const contentEl = findMainContentElement(customContentSelector);
 
-  if (captureTabs) {
-    tabsResult = await extractAllTabsSafely(contentEl, safeTabSwitching);
-    for (const rec of tabsResult.records) {
-      if (rec.status === 'unsafe') {
-        notes.push(`Tab "${rec.tabName}" was flagged as potentially non-read-only and skipped for safety.`);
+    // Step 4: Extract Breadcrumbs & Internal Links
+    const breadcrumbs = extractBreadcrumbs(document);
+    const internalLinks = extractInternalLinks(contentEl, window.location.origin);
+
+    // Step 5: Expand hidden details & accordions, recording initial states for restoration
+    if (expandAccordions) {
+      restoreAccordions = expandAllCollapsibles(contentEl);
+    }
+
+    // Step 6: Handle nested scrollable / virtualized containers and accumulate items
+    let virtualizedResult: { batchesCollected: number; accumulatedItems: Array<{ id: string; content: string }> } = {
+      batchesCollected: 0,
+      accumulatedItems: [],
+    };
+    if (scrollVirtualized) {
+      virtualizedResult = await handleVirtualizedAndNestedContainers(contentEl, maxVirtualSteps);
+      if (virtualizedResult.batchesCollected > 0) {
+        notes.push(`Scrolled and accumulated ${virtualizedResult.accumulatedItems.length} items across ${virtualizedResult.batchesCollected} virtualized batches.`);
       }
     }
+
+    // Step 7: Safe tab extraction
+    let tabsResult: { extractedTabs: Array<{ tabName: string; content: string }>; records: TabExtractionRecord[] } = {
+      extractedTabs: [],
+      records: [],
+    };
+
+    if (captureTabs) {
+      tabsResult = await extractAllTabsSafely(contentEl, safeTabSwitching);
+      for (const rec of tabsResult.records) {
+        if (rec.status === 'unsafe') {
+          notes.push(`Tab "${rec.tabName}" was flagged as non-read-only and skipped for safety.`);
+        }
+      }
+    }
+
+    // Step 8: Convert DOM to Markdown, extract code blocks, headings, images, and contentBlocks
+    let { markdown, codeBlocks, headings, images, contentBlocks } = htmlToMarkdown(contentEl);
+    const sections = extractSections(contentEl);
+
+    if (tabsResult.extractedTabs.length > 0 && sections.length > 0) {
+      sections[0].tabs = tabsResult.extractedTabs;
+    }
+
+    // Append virtualized content if items unmounted during scrolling
+    if (virtualizedResult.accumulatedItems.length > 0) {
+      const virtItemsMd = virtualizedResult.accumulatedItems.map(item => `- ${item.content}`).join('\n');
+      markdown += `\n\n### Accumulated Virtualized Content\n\n${virtItemsMd}\n`;
+    }
+
+    const wordCount = markdown.trim().split(/\s+/).filter(Boolean).length;
+
+    // Strict completeness detection
+    let isComplete = true;
+    if (wordCount < 25) {
+      isComplete = false;
+      warnings.push('Low word count: page may have failed to render or requires login.');
+    }
+
+    if (tabsResult.records.some(r => r.status === 'unsafe' || r.status === 'empty')) {
+      isComplete = false;
+      warnings.push('One or more documentation tabs could not be fully extracted (unsafe or empty panels).');
+    }
+
+    return {
+      id: currentUrl,
+      url: currentUrl,
+      title: pageTitle,
+      markdown,
+      wordCount,
+      headings,
+      sections,
+      breadcrumbs: breadcrumbs.length > 0 ? breadcrumbs : undefined,
+      internalLinks: internalLinks.length > 0 ? internalLinks : undefined,
+      contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
+      virtualizedItems: virtualizedResult.accumulatedItems.length > 0 ? virtualizedResult.accumulatedItems : undefined,
+      notes: notes.length > 0 ? notes : undefined,
+      tabsExtracted: tabsResult.records,
+      images,
+      isComplete,
+      warnings: warnings.length > 0 ? warnings : undefined,
+      extractedAt: Date.now(),
+    };
+  } finally {
+    // Restore accordions to their initial states
+    if (restoreAccordions) {
+      try {
+        restoreAccordions();
+      } catch {
+        // ignore restore error
+      }
+    }
+
+    // Restore reader's original scroll position
+    window.scrollTo({ left: initialScrollX, top: initialScrollY, behavior: 'instant' });
   }
-
-  // Step 8: Convert DOM to Markdown, extract code blocks, headings, images, and contentBlocks
-  const { markdown, codeBlocks, headings, images, contentBlocks } = htmlToMarkdown(contentEl);
-  const sections = extractSections(contentEl);
-
-  if (tabsResult.extractedTabs.length > 0 && sections.length > 0) {
-    sections[0].tabs = tabsResult.extractedTabs;
-  }
-
-  const wordCount = markdown.trim().split(/\s+/).filter(Boolean).length;
-
-  let isComplete = true;
-  if (wordCount < 25) {
-    isComplete = false;
-    warnings.push('Low word count: page may have failed to render or requires login.');
-  }
-
-  return {
-    id: currentUrl,
-    url: currentUrl,
-    title: pageTitle,
-    markdown,
-    wordCount,
-    headings,
-    sections,
-    breadcrumbs: breadcrumbs.length > 0 ? breadcrumbs : undefined,
-    internalLinks: internalLinks.length > 0 ? internalLinks : undefined,
-    contentBlocks: contentBlocks.length > 0 ? contentBlocks : undefined,
-    notes: notes.length > 0 ? notes : undefined,
-    tabsExtracted: tabsResult.records,
-    images,
-    isComplete,
-    warnings: warnings.length > 0 ? warnings : undefined,
-    extractedAt: Date.now(),
-  };
 }
