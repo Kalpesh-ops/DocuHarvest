@@ -33,17 +33,21 @@ export function escapeCsvField(value: string | number | boolean | undefined | nu
 
 /**
  * Formats a safe markdown code block fence, preventing broken code fences
- * if the code block itself contains triple backticks.
+ * by dynamically calculating a fence longer than any consecutive backtick sequence
+ * contained inside the code block (CommonMark / GFM standard).
  */
 export function formatSafeCodeBlock(code: string, language: string = ''): string {
   const cleanCode = code.trim();
-  let fence = '```';
-  if (cleanCode.includes('```')) {
-    fence = '````';
+  const backtickRuns = cleanCode.match(/`+/g) || [];
+  let maxBackticks = 0;
+  for (const run of backtickRuns) {
+    if (run.length > maxBackticks) {
+      maxBackticks = run.length;
+    }
   }
-  if (cleanCode.includes('````')) {
-    fence = '~~~~';
-  }
+
+  const fenceLength = Math.max(3, maxBackticks + 1);
+  const fence = '`'.repeat(fenceLength);
   return `\n\n${fence}${language}\n${cleanCode}\n${fence}\n\n`;
 }
 
@@ -338,8 +342,20 @@ export function triggerBrowserDownload(filename: string, content: string, mimeTy
   anchor.click();
 
   setTimeout(() => {
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    if (anchor.parentNode) {
+      try {
+        anchor.parentNode.removeChild(anchor);
+      } catch {
+        // Already removed or detached
+      }
+    }
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // Ignore revoke error
+      }
+    }
   }, 1500);
 }
 
