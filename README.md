@@ -98,7 +98,11 @@ ext-n-comp/
 
 ## 🔌 How to Load the Extension in Chrome
 
-1. Build the production extension if not already built:
+## 🔌 How to Load and Activate the Extension in Chrome
+
+DocuHarvest implements **zero-permission on-demand activation** for maximum privacy and compliance with Chrome Web Store security standards:
+
+1. **Build the production extension**:
    ```bash
    npm run build
    ```
@@ -110,103 +114,89 @@ ext-n-comp/
    e:\repos\ext-n-comp\.output\chrome-mv3
    ```
 6. The extension card **DocuHarvest — Private Documentation Collector** will appear with version `0.1.0`.
-7. Navigate to any authenticated documentation site. The floating glassmorphic control panel will automatically mount in the top-right corner.
+7. **Activate on Target Documentation**:
+   - Navigate to your authenticated documentation site in Chrome (e.g. `https://internal-docs.company.com/docs` or Project Octahedron).
+   - Click the **DocuHarvest puzzle/pin icon** in the Chrome toolbar.
+   - The floating glassmorphic control panel will mount into the active tab via `chrome.scripting` on demand. Unrelated websites are never injected with scripts or tracked.
 
 ---
 
-## ⚙️ Configuring Target Domain & URL Restrictions
+## 🔒 Permissions & Security Model (P0 Remediation)
 
-DocuHarvest automatically configures polite, scoped boundaries upon mounting:
-
-1. **Automatic Root Detection**:
-   - When mounted on `https://internal-docs.company.com/docs/v2/getting-started`, DocuHarvest automatically anchors its `urlPrefix` restriction to `https://internal-docs.company.com/docs`.
-2. **Same-Origin Constraint**:
-   - Navigation links pointing to external domains (e.g. GitHub, status pages, billing portals) are strictly filtered out by `isCandidateDocUrl()`.
-3. **Excluded Path Patterns**:
-   - The engine automatically skips authentication routes (`/login`, `/oauth`, `/sso`, `/auth`), billing sections (`/billing`, `/pricing`), account settings, and static binary files (`.pdf`, `.zip`, `.png`, `.jpg`).
-4. **Rate Limiting**:
-   - Configurable delay (default: `1200ms`) ensures polite browsing and prevents rate limiting by server firewalls.
+- **No `<all_urls>` Host Permissions**: Unlike broad scrapers, DocuHarvest requests **no host permissions** in `manifest.json`.
+- **Manifest Permissions Justification**:
+  - `storage`: Required to durably persist the documentation collection session, discovered page queue, and extracted markdown locally in `chrome.storage.local`.
+  - `activeTab`: Grants temporary, on-demand read access to the currently active documentation tab strictly when the user clicks the toolbar icon.
+  - `scripting`: Required to inject the content collector script into the user-selected active documentation tab without needing background surveillance across arbitrary websites.
+- **Shadow DOM Isolation**: The extension's UI is encapsulated inside `#docuharvest-root` with closed CSS and is explicitly filtered out from DOM link discovery, heading extraction, breadcrumbs, and tab scanning.
+- **Safe Tab Activation**: Only tabs matching read-only documentation criteria are inspected. Destructive action buttons (`delete`, `remove`, `pay`, `submit`) are strictly blacklisted. Tab switching preserves and restores the reader's original active tab.
 
 ---
 
-## 🕹️ Workflow: Start, Pause, Resume, and Stop
+## 🧭 Reliability & Lifecycle Guarantees (P1 Remediation)
 
-### 1. Start Collection
-- Click **Start Collection** on the floating panel.
-- DocuHarvest discovers documentation links from the navigation sidebar, expands collapsed sections (`<details>`, `aria-expanded="false"` buttons), builds the canonical queue, and begins sequential extraction.
-
-### 2. Pause Collection
-- Click **Pause** at any time.
-- The coordinator halts navigation and keeps the remaining queue and current progress intact in `chrome.storage.local`. The extension badge displays `II`.
-
-### 3. Resume Collection
-- Click **Resume**.
-- DocuHarvest re-verifies the rendered page, claims the coordinator token, and resumes processing without skipping or duplicating pages.
-
-### 4. Stop Collection
-- Click **Stop**.
-- Collection is terminated while all collected pages and word counts remain safely preserved. The download export buttons remain fully accessible.
-
-### 5. Inspect & Modify Queue
-- Click **Page Queue (<N> pages)** to inspect discovered URLs.
-- Click **Skip** on any page you want to omit.
-- Click **Retry** on any page that encountered transient network warnings.
-- Click **Preview** on any collected page to inspect its generated Markdown before downloading.
+- **Authoritative Session Coordinator**: Every active collection session generates a unique coordinator token. Before any DOM extraction, state mutation, navigation, or queue transition, the coordinator confirms its token is still active in storage.
+- **Prompt Interruption**: Pause and Stop operations trigger an internal `AbortController`, instantly cancelling in-flight rate limit delays and preventing stale asynchronous operations from mutating state.
+- **SPA & MPA Navigation Correctness**: Supports client-side SPA routing via in-DOM link triggering, with persistent fallback to full-page navigation. If an SPA transition fails to change the URL, the engine halts after 2 bounded attempts, logs an error, and drops the page to prevent repeated navigation loops.
+- **Durable Progress Recovery**: Page reload or browser closure preserves all collected pages and remaining queue items in `chrome.storage.local`.
+- **Surfaced Storage Failures**: Storage write errors (e.g., quota limits) are recorded directly on `session.storageError` and appended to `session.errors` rather than silently dropped.
 
 ---
 
-## 💾 Exporting & Data Recovery
+## 📑 Extraction Correctness & Data Integrity (P2 Remediation)
 
-DocuHarvest provides three tailored export formats with a single click:
-
-| Format | File Name | Primary Use Case |
-| :--- | :--- | :--- |
-| **Markdown** | `documentation-bundle.md` | Primary bundle formatted with YAML frontmatter, Table of Contents, headings hierarchy, callout alerts (`> [!NOTE]`, `> [!TIP]`), structured tables, multi-tab code snippets, and a final audit report. Ready for immediate ingestion by AI agents (LLMs). |
-| **Structured JSON** | `documentation-bundle.json` | Complete machine-readable payload containing canonical metadata, page arrays, breadcrumb paths, section blocks, code blocks, tab records, and failure audits for vector database chunking and RAG pipelines. |
-| **Tabular CSV** | `documentation-bundle.csv` | RFC 4180 compliant CSV prefixed with UTF-8 BOM (`\uFEFF`) for immediate loading into Excel, Google Sheets, Pandas, and data processing tools with full Unicode and emoji preservation. |
-
-### Data Recovery After Browser Crash or Reload
-- All collection states, discovered URLs, and extracted markdown are automatically persisted to `chrome.storage.local`.
-- If the browser is refreshed or closed, reopening the documentation site automatically restores the collected pages, word count, and queue. You can immediately resume collection or download your bundle.
-
-### Clearing Data
-- Click **Clear Stored Data** in the footer.
-- DocuHarvest prompts for explicit two-step confirmation (`"Yes, Delete All"` / `"Cancel"`) to prevent accidental deletion.
+- **Virtualized DOM Accumulation**: Scans scrollable virtualized containers and accumulates text/table rows across incremental batches before earlier elements unmount from the DOM.
+- **Reader Scroll Preservation**: Viewport auto-scrolling defaults to `false`. When page extraction completes, the reader's exact `window.scrollX` and `window.scrollY` positions are restored.
+- **Accordion State Restoration**: Collapsible `<details>` and `aria-expanded` accordion elements are expanded for complete text capture, and their initial open/closed states are cleanly restored.
+- **Strict Completeness Detection**: Pages with low word count (< 25 words) or with unsafe/inaccessible tabs are explicitly marked `isComplete: false` with audit warnings.
+- **Accurate Bundle Frontmatter**: Exported Markdown and JSON headers reflect partial pages and skipped items (`Incomplete (<N> partial, <M> failed)`).
 
 ---
 
-## 🛡️ Privacy & Security Audit
+## 🧪 Verification & Automated Test Evidence (P3 Remediation)
 
-DocuHarvest adheres to strict privacy and least-privilege standards:
+All automated test suites execute locally using Vitest:
 
-- **Zero External Network Requests**: Contains no `fetch()`, `XMLHttpRequest`, `axios`, or websocket connections to third-party endpoints.
-- **Zero Telemetry**: No Google Analytics, Mixpanel, Sentry, or pingbacks.
-- **No Cookie or Token Access**: Does not request the `cookies` permission and does not read `document.cookie` or authorization headers.
-- **Minimal Manifest Permissions**: Only requests `storage` to persist collection progress locally.
-- **Local File Generation**: Exports are compiled in-memory via `URL.createObjectURL(new Blob(...))` directly in the browser tab.
+```bash
+npm test
+```
 
----
-
-## ⚠️ Known Limitations & Safety Handling
-
-1. **Virtualized List Deduplication**:
-   - Content inside virtualized scroll containers that dynamically unmount DOM elements is scrolled in bounded steps (`maxVirtualScrollSteps = 8`). While most virtualized docs are captured, extremely deep virtual tables may require manual container height adjustments.
-2. **Cross-Origin iFrames**:
-   - In accordance with the browser Same-Origin Policy and Chrome security model, documentation embedded inside third-party, sandboxed `<iframe>` tags without cross-origin read permissions cannot be directly accessed. DocuHarvest records these in the audit log.
-3. **Destructive Controls Filter**:
-   - The safe tab switcher automatically detects and ignores buttons with destructive keywords (`delete`, `remove`, `submit`, `pay`, `purchase`, `logout`) to prevent unintended actions during documentation tab switching.
+### Test Suite Summary:
+- **`tests/docuharvest.test.ts` (16 tests)**: Unit tests for URL canonicalization, queue deduplication, nested navigation discovery, safe tab reading, and multi-format compilation.
+- **`tests/lifecycle-interaction.test.ts` (23 tests)**: Regression tests for coordinator races, duplicate initialization, stop-during-navigation prompt abort, pause-during-delay abort, SPA routing loop prevention, storage failure error surfacing, accordion restoration, reader scroll restoration, and virtualized batch accumulation.
+- **`tests/extraction-fixtures.test.ts` (12 tests)**: Synthetic documentation fixtures covering deep hierarchies, multi-tab extraction, virtualized tables, empty/malformed page audits, and end-to-end multi-page simulation.
+- **Total**: **51 tests passing** across 3 test suites.
 
 ---
 
-## 🔧 Troubleshooting Guide
+## 🔍 Manual Validation Protocol: Project Octahedron
 
-| Issue | Cause | Solution |
-| :--- | :--- | :--- |
-| **Panel does not appear on page** | Extension not loaded or page URL is an internal browser page (`chrome://`). | Ensure the extension is enabled in `chrome://extensions/` and test on a standard `http://` or `https://` webpage. Check that `__DOCUHARVEST_MOUNTED__` is not blocked. |
-| **Page extraction shows "Low word count" warning** | Page is still rendering dynamic hydration or requires login. | Adjust `stabilizationTimeoutMs` in config, ensure you are logged into the documentation site, and click **Retry** on the failed queue item. |
-| **Accidental navigation outside documentation** | Sidebar contained links to external marketing or account pages. | Ensure `urlPrefix` is set to the documentation path (e.g., `https://site.com/docs`). DocuHarvest automatically drops URLs not starting with this prefix. |
-| **Panel moves during page scroll** | Viewport positioning issue with target site CSS. | DocuHarvest uses `position: fixed !important` inside Shadow DOM attached to `document.documentElement` to prevent host page CSS interference. Drag the panel handle to re-position. |
-| **Excel shows garbled characters for non-English docs** | Missing UTF-8 Byte Order Mark in CSV. | DocuHarvest exports CSV with byte `\uFEFF` (UTF-8 BOM), ensuring Excel and Google Sheets render Japanese, Chinese, Cyrillic, accented characters, and emojis properly. |
+To validate DocuHarvest against an authenticated deployment of Project Octahedron:
+
+1. **Load Extension in Developer Mode**:
+   - Ensure the production build is compiled: `npm run build`.
+   - In Chrome, open `chrome://extensions/`, enable Developer Mode, and click **Load unpacked** pointing to `e:\repos\ext-n-comp\.output\chrome-mv3`.
+2. **Access Project Octahedron**:
+   - Navigate to the Project Octahedron documentation URL in your browser and complete any necessary SSO / authentication steps.
+3. **On-Demand Activation**:
+   - Click the DocuHarvest toolbar icon.
+   - Confirm that the floating glassmorphic panel appears in the top-right corner.
+   - Confirm that the extension automatically detected the documentation root path (e.g. `/docs`).
+4. **Queue Inspection & Discovery**:
+   - Click **Start Collection**.
+   - Expand the **Page Queue** dropdown to confirm all sidebar sections and nested items are discovered.
+5. **Interactive Safety Verification**:
+   - Verify that your reading scroll position is not violently disrupted.
+   - Verify that accordions expanded during extraction return to their original closed/open state.
+   - Verify that code snippet tabs (Python / JavaScript / cURL) are extracted without triggering destructive actions.
+6. **Lifecycle Controls Test**:
+   - Click **Pause** during collection: verify that navigation stops immediately and the queue remains intact.
+   - Click **Resume**: verify that collection continues from the current item without re-collecting completed pages.
+   - Reload the page (`Ctrl+R`): verify that the floating panel recovers previous collection progress.
+7. **Export Verification**:
+   - Click **Export Markdown**, **JSON**, and **CSV**.
+   - Inspect `documentation-bundle.md`: verify that the YAML frontmatter accurately reports total pages, word count, and completeness status.
+   - Verify that exporting does not clear or alter the stored collection queue.
 
 ---
 
