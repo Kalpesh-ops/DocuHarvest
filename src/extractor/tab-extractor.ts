@@ -66,27 +66,41 @@ function safeEscapeCss(str: string): string {
 
 /**
  * Finds the tabpanel associated with a given tab button strictly within its tab group boundary.
+ * Rejects any resolved panel unless it belongs to the intended groupContainer.
  */
 function findAssociatedPanel(btn: HTMLElement, groupContainer: HTMLElement): HTMLElement | null {
   // Method 1: aria-controls
   const controlsId = btn.getAttribute('aria-controls');
   if (controlsId) {
-    const panel = groupContainer.querySelector<HTMLElement>(`#${safeEscapeCss(controlsId)}`) || document.getElementById(controlsId);
-    if (panel && !panel.closest('#docuharvest-root')) return panel;
+    let panel = groupContainer.querySelector<HTMLElement>(`#${safeEscapeCss(controlsId)}`);
+    if (!panel) {
+      const docEl = document.getElementById(controlsId);
+      // STRICT REQUIREMENT: Only accept if panel actually belongs to groupContainer!
+      if (docEl && groupContainer.contains(docEl)) {
+        panel = docEl;
+      }
+    }
+    if (panel && !panel.closest('#docuharvest-root') && groupContainer.contains(panel)) {
+      return panel;
+    }
+    // When aria-controls is explicitly set, do not guess another panel via positional fallback
+    return null;
   }
 
   // Method 2: aria-labelledby match
   const btnId = btn.id;
   if (btnId) {
     const panel = groupContainer.querySelector<HTMLElement>(`[role="tabpanel"][aria-labelledby="${safeEscapeCss(btnId)}"]`);
-    if (panel && !panel.closest('#docuharvest-root')) return panel;
+    if (panel && !panel.closest('#docuharvest-root') && groupContainer.contains(panel)) {
+      return panel;
+    }
   }
 
   // Method 3: Neighboring tabpanel within the tablist group container
   const tabList = btn.closest('[role="tablist"], .tabs, .tab-group, .tabs-container') || btn.parentElement;
   if (tabList) {
     const panels = Array.from(groupContainer.querySelectorAll<HTMLElement>('[role="tabpanel"], .tab-pane, .tab-content > div, .tabs__content > div'))
-      .filter(p => !p.closest('#docuharvest-root'));
+      .filter(p => !p.closest('#docuharvest-root') && groupContainer.contains(p));
 
     const buttons = Array.from(tabList.querySelectorAll<HTMLElement>('[role="tab"], button, .tab-item, a'))
       .filter(b => !b.closest('#docuharvest-root'));
@@ -106,7 +120,8 @@ function findAssociatedPanel(btn: HTMLElement, groupContainer: HTMLElement): HTM
  */
 export async function extractAllTabsSafely(
   contentContainer: HTMLElement,
-  enableSafeClicking: boolean = true
+  enableSafeClicking: boolean = true,
+  signal?: AbortSignal
 ): Promise<{ extractedTabs: Array<{ tabName: string; content: string }>; records: TabExtractionRecord[] }> {
   const allExtractedTabs: Array<{ tabName: string; content: string }> = [];
   const records: TabExtractionRecord[] = [];
@@ -147,6 +162,8 @@ export async function extractAllTabsSafely(
     const originalScrollY = window.scrollY;
 
     for (const btn of buttons) {
+      if (signal?.aborted) break;
+
       const tabName = (btn.getAttribute('aria-label') || btn.innerText || btn.textContent || '').trim();
       if (!tabName) continue;
 
@@ -181,15 +198,29 @@ export async function extractAllTabsSafely(
       if (enableSafeClicking) {
         try {
           btn.click();
-          // Short pause for dynamic framework render
-          await new Promise(resolve => setTimeout(resolve, 150));
+          // Short pause for dynamic framework render (abortable)
+          await new Promise(resolve => {
+            const timer = setTimeout(resolve, 150);
+            if (signal) {
+              signal.addEventListener('abort', () => {
+                clearTimeout(timer);
+                resolve(undefined);
+              }, { once: true });
+            }
+          });
+
+          if (signal?.aborted) break;
 
           panel = findAssociatedPanel(btn, groupContainer as HTMLElement);
-          // Fallback: query active tabpanel strictly inside the group container
-          if (!panel) {
+          // Fallback: only if no explicit aria-controls was declared, query active tabpanel strictly inside the group container
+          if (!panel && !btn.hasAttribute('aria-controls')) {
             panel = (groupContainer as HTMLElement).querySelector<HTMLElement>(
               '[role="tabpanel"]:not([hidden]), .tab-pane.active, .tab-content > div:not([style*="display: none"])'
             );
+          }
+
+          if (panel && !(groupContainer as HTMLElement).contains(panel)) {
+            panel = null;
           }
 
           panelText = panel ? (panel.innerText || panel.textContent || '').trim() : '';
@@ -233,7 +264,15 @@ export async function extractAllTabsSafely(
     if (originalActiveBtn && enableSafeClicking) {
       try {
         originalActiveBtn.click();
-        await new Promise(resolve => setTimeout(resolve, 80));
+        await new Promise(resolve => {
+          const timer = setTimeout(resolve, 80);
+          if (signal) {
+            signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              resolve(undefined);
+            }, { once: true });
+          }
+        });
 
         const isSelected =
           originalActiveBtn.getAttribute('aria-selected') === 'true' ||
@@ -244,6 +283,14 @@ export async function extractAllTabsSafely(
         if (!isSelected) {
           originalActiveBtn.click();
           await new Promise(resolve => setTimeout(resolve, 50));
+          const retrySelected =
+            originalActiveBtn.getAttribute('aria-selected') === 'true' ||
+            originalActiveBtn.classList.contains('active') ||
+            originalActiveBtn.classList.contains('is-active') ||
+            originalActiveBtn.classList.contains('selected');
+          if (!retrySelected) {
+            restored = false;
+          }
         }
       } catch {
         restored = false;
@@ -252,14 +299,19 @@ export async function extractAllTabsSafely(
 
     // Mark restoration status on records
     for (const rec of records) {
-      if (rec.tabGroupIndex === groupIdx && rec.status === 'extracted') {
+      if (rec.tabGroupIndex === groupIdx) {
         rec.restored = restored;
+        if (!restored && rec.status === 'extracted') {
+          rec.error = 'Tab restoration failed to return to original active tab';
+        }
       }
     }
 
     // Restore scroll position
     if (Math.abs(window.scrollY - originalScrollY) > 5) {
-      window.scrollTo({ top: originalScrollY, behavior: 'instant' });
+      try {
+        window.scrollTo({ top: originalScrollY, behavior: 'instant' });
+      } catch {}
     }
   }
 
