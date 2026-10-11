@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask Questions & Discussion
+    url: https://github.com/Kalpesh-ops/DocuHarvest/discussions
+    about: Please ask and answer questions about DocuHarvest usage here.
+  - name: Security Vulnerability Reporting
+    url: https://github.com/Kalpesh-ops/DocuHarvest/security/advisories
+    about: Report sensitive security vulnerabilities privately according to SECURITY.md.

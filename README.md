@@ -1,205 +1,221 @@
 # DocuHarvest — Private Documentation Collector
 
-> Production-quality WXT + TypeScript Chrome extension (Manifest V3) for privately extracting, compiling, and exporting documentation from authenticated web sessions into AI-ready knowledge bases.
+[![CI](https://github.com/Kalpesh-ops/DocuHarvest/actions/workflows/ci.yml/badge.svg)](https://github.com/Kalpesh-ops/DocuHarvest/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-success.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue.svg)](https://www.typescriptlang.org/)
+[![WXT](https://img.shields.io/badge/Built%20with-WXT-orange.svg)](https://wxt.dev/)
+
+> Production-quality WXT + TypeScript Chrome Extension (Manifest V3) for privately extracting, compiling, and exporting documentation from authenticated web sessions into AI-ready knowledge bases.
 
 ---
 
-## 🎯 Architecture Overview
+## 📖 Table of Contents
+- [Why DocuHarvest?](#-why-docuharvest)
+- [Architecture & Design](#-architecture--design)
+- [Installation & Setup](#-installation--setup)
+- [Quick Start Guide](#-quick-start-guide)
+- [Security & Privacy Model](#-security--privacy-model)
+- [Lifecycle & Concurrency Guarantees](#-lifecycle--concurrency-guarantees)
+- [Export Formats & AI Ingestion](#-export-formats--ai-ingestion)
+- [Automated Testing & CI](#-automated-testing--ci)
+- [Documentation & Community](#-documentation--community)
+- [License](#-license)
 
-DocuHarvest is designed for secure, local extraction of documentation behind authentication (SSO, VPN, paid portals) where raw scrapers and curl scripts cannot reach. All DOM processing, hierarchy resolution, and compilation happen entirely inside the browser's local sandbox with zero external telemetry, zero tracking, and zero remote data transmission.
+---
+
+## 🎯 Why DocuHarvest?
+
+Many critical technical documentation sites live behind authenticated sessions (enterprise SSO, VPNs, internal intranets, paid developer portals, or Project Octahedron) where external web scrapers, curl scripts, or cloud AI fetchers cannot reach.
+
+**DocuHarvest** solves this by running locally inside your authenticated Chrome session:
+1. **Zero External Telemetry**: All DOM traversal, extraction, and compilation happen entirely inside the browser's local sandbox (`chrome.storage.local`). No credentials, cookies, or content are ever sent to third-party servers.
+2. **Defensive DOM Operations**: Respects the host page DOM. Accordions and multi-language tabs are safely expanded for extraction and **re-clicked upon completion** to restore the user's view.
+3. **AI-Ready Formats**: Compiles complex documentation hierarchies into structured Markdown (`documentation-bundle.md`), rich JSON (`documentation-bundle.json`), and CSV (`documentation-bundle.csv`) with CommonMark dynamic backtick code fences and audit reports.
+
+---
+
+## 🏗 Architecture & Design
+
+DocuHarvest is architected with modular layers using [WXT](https://wxt.dev):
 
 ```
-ext-n-comp/
-├── .output/
-│   └── chrome-mv3/          # Compiled production extension for Chrome
+DocuHarvest/
+├── .github/
+│   ├── workflows/ci.yml     # Automated CI (TypeScript compile, tests, build)
+│   ├── ISSUE_TEMPLATE/      # Bug reports & feature request templates
+│   └── PULL_REQUEST_TEMPLATE.md
+├── docs/
+│   ├── ARCHITECTURE.md      # Deep dive into distributed coordinator & Shadow DOM
+│   ├── USER_GUIDE.md        # Comprehensive manual & AI prompt engineering playbook
+│   └── OCTAHEDRON_VALIDATION_PROTOCOL.md # Live acceptance test procedure
 ├── entrypoints/
-│   ├── background.ts        # Service worker (toolbar action badge synchronization)
-│   └── content.ts           # Content script mounting, singleton guard & orchestrator bridge
+│   ├── background.ts        # Service worker (action click injection)
+│   └── content.ts           # Content script coordinator & Shadow DOM mounter
 ├── src/
-│   ├── types/               # Domain models (Session, Page, Config, Stats, ContentBlock)
-│   ├── storage/             # Durable state persistence via chrome.storage.local
 │   ├── discovery/           # Sidebar TOC detection & link hierarchy discovery
-│   ├── extractor/
-│   │   ├── dom-extractor.ts # Rendered DOM extractor (lazy scroll, expanders, Markdown)
-│   │   └── tab-extractor.ts # Safe multi-tab switcher and panel reader
-│   ├── orchestrator/        # State machine (Idle, Running, Paused, Stopped, Completed)
+│   ├── extractor/           # Rendered DOM extractor, tab switcher, virtualized scroller
 │   ├── export/              # Master Markdown (.md), JSON (.json), and CSV (.csv) compilers
-│   └── ui/
-│       ├── panel.ts         # Isolated Shadow DOM floating panel with drag physics
-│       └── panel-styles.ts  # Scoped dark glassmorphic CSS design system
-├── tests/
-│   ├── test-utils.ts        # Mock Chrome API test environment
-│   ├── docuharvest.test.ts  # Core unit tests (canonical URLs, deduplication, exports)
-│   ├── lifecycle-interaction.test.ts # 15 lifecycle bug regression tests
-│   └── extraction-fixtures.test.ts   # Synthetic fixture completeness tests
-├── package.json
-├── tsconfig.json
-├── vitest.config.ts
-└── wxt.config.ts
+│   ├── orchestrator/        # State machine with AbortSignal cancellation
+│   ├── storage/             # Durable chrome.storage.local persistence & recovery
+│   ├── ui/                  # Floating Shadow DOM panel with drag physics & dark CSS
+│   └── types/               # TypeScript domain models and schemas
+├── tests/                   # 57 automated unit, lifecycle, and synthetic fixture tests
+├── CONTRIBUTING.md          # Contribution guidelines & coding standards
+├── CODE_OF_CONDUCT.md       # Contributor Covenant v2.1
+├── SECURITY.md              # Vulnerability reporting & security architecture
+├── CHANGELOG.md             # Semantic release history
+└── package.json
 ```
 
----
-
-## 📋 Prerequisites
-
-- **Node.js**: v18.0.0 or higher (v20+ recommended)
-- **npm**: v9.0.0 or higher
-- **Google Chrome**: Version 116+ (Manifest V3 support) or Chromium-based browsers (Brave, Edge, Arc)
+For full details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
 ## 📦 Installation & Setup
 
-1. **Clone or open the repository**:
-   ```bash
-   cd e:/repos/ext-n-comp
-   ```
+### Prerequisites
+- **Node.js**: v20+ recommended (v18.0.0 minimum)
+- **npm**: v9.0.0 or higher
+- **Google Chrome** (or Chromium, Brave, Edge): Version 120+
 
-2. **Install dependencies**:
-   ```bash
-   npm install
-   ```
-
----
-
-## 🛠️ Development & Build Commands
-
-- **Development Mode with Live-Reload**:
-  ```bash
-  npm run dev
-  ```
-  *Launches an isolated Chrome instance with the extension hot-reloaded upon file changes.*
-
-- **Type Check**:
-  ```bash
-  npm run compile
-  ```
-  *Executes `tsc --noEmit` across all TypeScript modules.*
-
-- **Run Automated Test Suites**:
-  ```bash
-  npm test
-  ```
-  *Executes all unit, lifecycle, and fixture test suites via Vitest.*
-
-- **Production Build**:
-  ```bash
-  npm run build
-  ```
-  *Compiles and bundles the production Chrome Manifest V3 extension into `.output/chrome-mv3`.*
-
-- **Package Extension Archive**:
-  ```bash
-  npm run zip
-  ```
-  *Packages the production extension into a distributable zip archive in `.output`.*
-
----
-
-## 🔌 How to Load the Extension in Chrome
-
-## 🔌 How to Load and Activate the Extension in Chrome
-
-DocuHarvest implements **zero-permission on-demand activation** for maximum privacy and compliance with Chrome Web Store security standards:
-
-1. **Build the production extension**:
-   ```bash
-   npm run build
-   ```
-2. Open Google Chrome and enter `chrome://extensions/` in the URL bar.
-3. In the top-right corner, toggle **Developer mode** to **ON**.
-4. Click the **Load unpacked** button in the top-left toolbar.
-5. In the file picker, select the directory:
-   ```
-   e:\repos\ext-n-comp\.output\chrome-mv3
-   ```
-6. The extension card **DocuHarvest — Private Documentation Collector** will appear with version `0.1.0`.
-7. **Activate on Target Documentation**:
-   - Navigate to your authenticated documentation site in Chrome (e.g. `https://internal-docs.company.com/docs` or Project Octahedron).
-   - Click the **DocuHarvest puzzle/pin icon** in the Chrome toolbar.
-   - The floating glassmorphic control panel will mount into the active tab via `chrome.scripting` on demand. Unrelated websites are never injected with scripts or tracked.
-
----
-
-## 🔒 Permissions & Security Model (P0 Remediation)
-
-- **No `<all_urls>` Host Permissions**: Unlike broad scrapers, DocuHarvest requests **no host permissions** in `manifest.json`.
-- **Manifest Permissions Justification**:
-  - `storage`: Required to durably persist the documentation collection session, discovered page queue, and extracted markdown locally in `chrome.storage.local`.
-  - `activeTab`: Grants temporary, on-demand read access to the currently active documentation tab strictly when the user clicks the toolbar icon.
-  - `scripting`: Required to inject the content collector script into the user-selected active documentation tab without needing background surveillance across arbitrary websites.
-- **Shadow DOM Isolation**: The extension's UI is encapsulated inside `#docuharvest-root` with closed CSS and is explicitly filtered out from DOM link discovery, heading extraction, breadcrumbs, and tab scanning.
-- **Safe Tab Activation**: Only tabs matching read-only documentation criteria are inspected. Destructive action buttons (`delete`, `remove`, `pay`, `submit`) are strictly blacklisted. Tab switching preserves and restores the reader's original active tab.
-
----
-
-## 🧭 Reliability & Lifecycle Guarantees (P1 Remediation)
-
-- **Authoritative Session Coordinator**: Every active collection session generates a unique coordinator token. Before any DOM extraction, state mutation, navigation, or queue transition, the coordinator confirms its token is still active in storage.
-- **Prompt Interruption**: Pause and Stop operations trigger an internal `AbortController`, instantly cancelling in-flight rate limit delays and preventing stale asynchronous operations from mutating state.
-- **SPA & MPA Navigation Correctness**: Supports client-side SPA routing via in-DOM link triggering, with persistent fallback to full-page navigation. If an SPA transition fails to change the URL, the engine halts after 2 bounded attempts, logs an error, and drops the page to prevent repeated navigation loops.
-- **Durable Progress Recovery**: Page reload or browser closure preserves all collected pages and remaining queue items in `chrome.storage.local`.
-- **Surfaced Storage Failures**: Storage write errors (e.g., quota limits) are recorded directly on `session.storageError` and appended to `session.errors` rather than silently dropped.
-
----
-
-## 📑 Extraction Correctness & Data Integrity (P2 Remediation)
-
-- **Virtualized DOM Accumulation**: Scans scrollable virtualized containers and accumulates text/table rows across incremental batches before earlier elements unmount from the DOM.
-- **Reader Scroll Preservation**: Viewport auto-scrolling defaults to `false`. When page extraction completes, the reader's exact `window.scrollX` and `window.scrollY` positions are restored.
-- **Accordion State Restoration**: Collapsible `<details>` and `aria-expanded` accordion elements are expanded for complete text capture, and their initial open/closed states are cleanly restored.
-- **Strict Completeness Detection**: Pages with low word count (< 25 words) or with unsafe/inaccessible tabs are explicitly marked `isComplete: false` with audit warnings.
-- **Accurate Bundle Frontmatter**: Exported Markdown and JSON headers reflect partial pages and skipped items (`Incomplete (<N> partial, <M> failed)`).
-
----
-
-## 🧪 Verification & Automated Test Evidence (P3 Remediation)
-
-All automated test suites execute locally using Vitest:
-
+### Build from Source
 ```bash
+# 1. Clone repository
+git clone https://github.com/Kalpesh-ops/DocuHarvest.git
+cd DocuHarvest
+
+# 2. Install dependencies
+npm install
+
+# 3. Verify build & tests
+npm run compile
 npm test
+npm run build
 ```
 
-### Test Suite Summary:
-- **`tests/docuharvest.test.ts` (16 tests)**: Unit tests for URL canonicalization, queue deduplication, nested navigation discovery, safe tab reading, and multi-format compilation.
-- **`tests/lifecycle-interaction.test.ts` (23 tests)**: Regression tests for coordinator races, duplicate initialization, stop-during-navigation prompt abort, pause-during-delay abort, SPA routing loop prevention, storage failure error surfacing, accordion restoration, reader scroll restoration, and virtualized batch accumulation.
-- **`tests/extraction-fixtures.test.ts` (12 tests)**: Synthetic documentation fixtures covering deep hierarchies, multi-tab extraction, virtualized tables, empty/malformed page audits, and end-to-end multi-page simulation.
-- **Total**: **51 tests passing** across 3 test suites.
+The production Chrome extension will be compiled into:
+```
+.output/chrome-mv3/
+```
+
+### Load in Chrome
+1. In Chrome, open `chrome://extensions/`.
+2. Toggle **Developer mode** to **ON** in the top-right corner.
+3. Click **Load unpacked** and select the `.output/chrome-mv3` folder.
+4. Pin the **DocuHarvest** icon to your toolbar.
 
 ---
 
-## 🔍 Manual Validation Protocol: Project Octahedron
+## 🚀 Quick Start Guide
 
-To validate DocuHarvest against an authenticated deployment of Project Octahedron:
+1. **Open Target Docs**: Navigate to any documentation site in Chrome and log in if required.
+2. **Launch Panel**: Click the DocuHarvest icon in your toolbar to inject the floating collector.
+3. **Discover Pages**: Click **Discover Pages**. DocuHarvest automatically maps the sidebar navigation tree and fills the collection queue.
+4. **Inspect Queue**: Click **Inspect Queue** to view pending items, skip unwanted paths, or retry failed items.
+5. **Start Collection**: Click **Start Harvest**. Observe real-time progress, word counts, and operation statuses.
+6. **Export Bundle**: When complete, download:
+   - `documentation-bundle.md`: Primary AI knowledge base with headings and audit report.
+   - `documentation-bundle.json`: Structured records for vector databases and RAG pipelines.
+   - `documentation-bundle.csv`: Tabular spreadsheet format.
 
-1. **Load Extension in Developer Mode**:
-   - Ensure the production build is compiled: `npm run build`.
-   - In Chrome, open `chrome://extensions/`, enable Developer Mode, and click **Load unpacked** pointing to `e:\repos\ext-n-comp\.output\chrome-mv3`.
-2. **Access Project Octahedron**:
-   - Navigate to the Project Octahedron documentation URL in your browser and complete any necessary SSO / authentication steps.
-3. **On-Demand Activation**:
-   - Click the DocuHarvest toolbar icon.
-   - Confirm that the floating glassmorphic panel appears in the top-right corner.
-   - Confirm that the extension automatically detected the documentation root path (e.g. `/docs`).
-4. **Queue Inspection & Discovery**:
-   - Click **Start Collection**.
-   - Expand the **Page Queue** dropdown to confirm all sidebar sections and nested items are discovered.
-5. **Interactive Safety Verification**:
-   - Verify that your reading scroll position is not violently disrupted.
-   - Verify that accordions expanded during extraction return to their original closed/open state.
-   - Verify that code snippet tabs (Python / JavaScript / cURL) are extracted without triggering destructive actions.
-6. **Lifecycle Controls Test**:
-   - Click **Pause** during collection: verify that navigation stops immediately and the queue remains intact.
-   - Click **Resume**: verify that collection continues from the current item without re-collecting completed pages.
-   - Reload the page (`Ctrl+R`): verify that the floating panel recovers previous collection progress.
-7. **Export Verification**:
-   - Click **Export Markdown**, **JSON**, and **CSV**.
-   - Inspect `documentation-bundle.md`: verify that the YAML frontmatter accurately reports total pages, word count, and completeness status.
-   - Verify that exporting does not clear or alter the stored collection queue.
+For advanced settings, rate limits, and AI agent prompts, see [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+
+---
+
+## 🔒 Security & Privacy Model
+
+DocuHarvest implements a **strict least-privilege security model**:
+- **Zero Broad Host Permissions**: No unconditional `<all_urls>` permission. Scripts are injected exclusively into the active tab on-demand when you click the toolbar icon.
+- **Shadow DOM Isolation**: The UI is encapsulated within an isolated Shadow DOM (`#docuharvest-root`). Website scripts and stylesheets cannot leak into or conflict with the collector.
+- **Read-Only Guard**: Buttons containing destructive tokens (`delete`, `remove`, `logout`) are strictly blacklisted from tab interactions.
+- **Zero Telemetry**: All data remains strictly within your browser.
+
+Read our full security policy in [SECURITY.md](SECURITY.md).
+
+---
+
+## 🧭 Lifecycle & Concurrency Guarantees
+
+- **Single Authoritative Coordinator**: Uses an active coordinator token model (`session.activeCoordinatorToken`). If an SPA navigation re-injects content scripts, duplicate workers detect authority loss and self-terminate immediately.
+- **Real AbortSignal Cancellation**: Pause and Stop operations propagate an `AbortSignal` through all in-flight delays, tab switches, and virtualized container scrollers, cleanly aborting work without corrupting state.
+- **Reload Resilience**: All progress is persisted continuously in `chrome.storage.local`. If you refresh the page or restart Chrome mid-run, previous progress is restored automatically.
+- **Accordion Restoration**: Expands `<details>` and recognized accordions during extraction, and re-clicks toggled buttons upon completion to cleanly restore host page state.
+
+---
+
+## 📑 Export Formats & AI Ingestion
+
+Exported files are engineered for zero-loss ingestion into LLMs (Claude, Gemini, GPT-4, Llama 3):
+
+```markdown
+---
+title: "Documentation Knowledge Bundle"
+source: "https://docs.example.com"
+collected_at: "2026-10-11T18:00:00Z"
+total_pages: 42
+total_words: 85200
+generator: "DocuHarvest Private Documentation Collector"
+---
+
+# Documentation Knowledge Bundle
+
+> **Completeness:** No known incomplete pages or warnings (all discovered pages fully extracted)
+
+## Table of Contents
+1. [Getting Started](#1-getting-started)
+2. [API Reference](#2-api-reference)
+
+---
+
+# 1. Getting Started
+...
+```
+
+- **Dynamic Code Fencing**: Detects consecutive backtick sequences in code and dynamically sizes the Markdown fence (` ```` ` or longer) according to CommonMark standards.
+- **Callout Translation**: Converts platform admonitions into standardized GitHub-style alerts (`> [!NOTE]`, `> [!WARNING]`).
+- **Audit Section**: Summarizes discovered pages, clean pages, warnings, and skips at the bottom of the bundle.
+
+---
+
+## 🧪 Automated Testing & CI
+
+DocuHarvest includes an extensive test suite:
+
+```bash
+# Run all automated test suites
+npm test
+
+# Type check
+npm run compile
+
+# Production build
+npm run build
+```
+
+### Test Suite Breakdown (57 Passing Tests)
+- **`tests/docuharvest.test.ts` (16 tests)**: Canonical URLs, tracking query stripping, queue deduplication, export formatting.
+- **`tests/lifecycle-interaction.test.ts` (29 tests)**: Single coordinator races, reload recovery, AbortSignal cancellation, accordion filtering, tab isolation, dynamic backtick code fencing, completeness warnings.
+- **`tests/extraction-fixtures.test.ts` (12 tests)**: Synthetic DOM fixtures simulating complex sidebars, multi-tab code snippets, virtualized lists, and multi-page collection.
+
+Continuous Integration runs automatically via [GitHub Actions](.github/workflows/ci.yml) on every push and pull request.
+
+---
+
+## 📚 Documentation & Community
+
+- [Architecture Guide](docs/ARCHITECTURE.md)
+- [User Guide & AI Playbook](docs/USER_GUIDE.md)
+- [Acceptance Validation Protocol](docs/OCTAHEDRON_VALIDATION_PROTOCOL.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Security Policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+- [Support Guide](SUPPORT.md)
 
 ---
 
 ## 📜 License
 
-MIT License. Designed for private, authenticated documentation collection.
+Distributed under the [MIT License](LICENSE).
+DocuHarvest is open-source software designed for private, ethical, and authenticated documentation collection.

@@ -1,9 +1,28 @@
 {
   "name": "docuharvest",
   "version": "0.1.0",
-  "description": "DocuHarvest — Private Documentation Collector Chrome Extension",
-  "private": true,
+  "description": "Private, authenticated documentation collector Chrome Extension for AI agents and LLM context",
+  "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kalpesh-ops/DocuHarvest.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kalpesh-ops/DocuHarvest/issues"
+  },
+  "homepage": "https://github.com/Kalpesh-ops/DocuHarvest#readme",
+  "keywords": [
+    "chrome-extension",
+    "wxt",
+    "documentation",
+    "ai-context",
+    "web-scraping",
+    "markdown-exporter",
+    "llm-ready",
+    "manifest-v3",
+    "typescript"
+  ],
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
