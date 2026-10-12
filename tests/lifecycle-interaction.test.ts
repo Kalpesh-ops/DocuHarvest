@@ -985,5 +985,206 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
     expect(filename).toContain('charges');
     expect(filename.endsWith('.md')).toBe(true);
   });
+
+  it('Case 38: Live Telemetry Matrix computes and displays throughput and remaining ETA when session status is running', () => {
+    session.status = 'running';
+    session.startedAt = Date.now() - 60000; // started 60s ago
+    session.discoveredPages = {
+      'p1': { id: 'p1', url: 'https://docs.site.com/1', title: 'P1', status: 'completed', depth: 0, discoveredAt: Date.now() },
+      'p2': { id: 'p2', url: 'https://docs.site.com/2', title: 'P2', status: 'completed', depth: 0, discoveredAt: Date.now() },
+      'p3': { id: 'p3', url: 'https://docs.site.com/3', title: 'P3', status: 'pending', depth: 0, discoveredAt: Date.now() },
+      'p4': { id: 'p4', url: 'https://docs.site.com/4', title: 'P4', status: 'pending', depth: 0, discoveredAt: Date.now() },
+    };
+    session.collectedPages = {
+      'https://docs.site.com/1': { id: 'p1', url: 'https://docs.site.com/1', title: 'P1', markdown: '# 1', wordCount: 50, headings: [], sections: [], isComplete: true, extractedAt: Date.now() },
+      'https://docs.site.com/2': { id: 'p2', url: 'https://docs.site.com/2', title: 'P2', markdown: '# 2', wordCount: 50, headings: [], sections: [], isComplete: true, extractedAt: Date.now() },
+    };
+    session.pagesOrder = ['https://docs.site.com/1', 'https://docs.site.com/2', 'https://docs.site.com/3', 'https://docs.site.com/4'];
+    session.queue = ['https://docs.site.com/3', 'https://docs.site.com/4'];
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+    const matrix = shadow.querySelector('.dh-telemetry-matrix');
+    expect(matrix).not.toBeNull();
+
+    // Verify ETA calculation text is rendered
+    expect(matrix!.textContent).toContain('ETA:');
+    panel.destroy();
+  });
+
+  it('Case 39: Window resize dynamically invokes applyPosition and reclamps coordinates within current viewport bounds', () => {
+    // Set position far off
+    session.panelPosition = { x: 2500, y: 1500 };
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    // Trigger window resize event
+    window.dispatchEvent(new Event('resize'));
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+    const container = shadow.querySelector('.dh-container') as HTMLElement;
+    expect(container).not.toBeNull();
+
+    // Left style must be bounded by window.innerWidth
+    const leftPx = parseInt(container.style.left, 10);
+    expect(leftPx).toBeLessThanOrEqual(window.innerWidth);
+
+    panel.destroy();
+  });
+
+  it('Case 40: Copy MD button in export bar triggers onCopyMarkdown and displays positive toast notice', () => {
+    session.collectedPages = {
+      'https://docs.site.com/intro': {
+        id: '1',
+        url: 'https://docs.site.com/intro',
+        title: 'Intro',
+        markdown: '# Introduction',
+        wordCount: 100,
+        headings: [],
+        sections: [],
+        isComplete: true,
+        extractedAt: Date.now(),
+      },
+    };
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onCopyMarkdown: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+    const copyBtn = shadow.getElementById('dh-btn-copy-md');
+    expect(copyBtn).not.toBeNull();
+
+    copyBtn!.click();
+    expect(events.onCopyMarkdown).toHaveBeenCalledTimes(1);
+
+    // Verify toast is displayed
+    const toast = shadow.querySelector('.dh-toast');
+    expect(toast).not.toBeNull();
+    expect(toast!.textContent).toContain('Copied');
+
+    panel.destroy();
+  });
+
+  it('Case 41: Prioritizing a page moves it to the head of queue via onPrioritizePage', () => {
+    session.panelQueueVisible = true;
+    session.discoveredPages = {
+      'https://docs.site.com/p1': { id: 'p1', url: 'https://docs.site.com/p1', title: 'Page 1', status: 'pending', depth: 0, discoveredAt: Date.now() },
+      'https://docs.site.com/p2': { id: 'p2', url: 'https://docs.site.com/p2', title: 'Page 2', status: 'pending', depth: 0, discoveredAt: Date.now() },
+    };
+    session.pagesOrder = ['https://docs.site.com/p1', 'https://docs.site.com/p2'];
+    session.queue = ['https://docs.site.com/p1', 'https://docs.site.com/p2'];
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onPrioritizePage: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+    const topBtns = shadow.querySelectorAll<HTMLButtonElement>('.dh-btn-prioritize');
+    expect(topBtns.length).toBeGreaterThan(0);
+
+    topBtns[1].click(); // Click Top on Page 2
+    expect(events.onPrioritizePage).toHaveBeenCalledWith('https://docs.site.com/p2');
+
+    panel.destroy();
+  });
+
+  it('Case 42: Global keyboard shortcut Alt+Shift+D triggers onToggleMinimize', () => {
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    // Dispatch Alt+Shift+D
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', altKey: true, shiftKey: true }));
+    expect(events.onToggleMinimize).toHaveBeenCalledTimes(1);
+
+    panel.destroy();
+  });
 });
 
