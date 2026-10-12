@@ -1,15 +1,22 @@
 /**
  * DocuHarvest - Shadow DOM Scoped Styles
- * Complete CSS design system isolated from the host page.
+ * Professional, industrial-grade engineering aesthetic.
+ * Strict adherence to utility-first, high-density, flat technical design:
+ * - Solid surfaces with 1px border hierarchy (no liquid glass / blur)
+ * - Zero drop shadows (clean borders and contrast)
+ * - Precision corner radii (2px-4px, no soft bubble/pill radii)
+ * - Calibrated dark technical palette (no purple/black, no neon, no pastels)
+ * - Instantaneous, solid hover states (no bouncy translateY transforms)
+ * - Clean monospace telemetry and native system typography
  */
 
 export const PANEL_CSS = `
 :host {
   all: initial;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 13px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 12px;
   line-height: 1.4;
-  color: #f1f5f9;
+  color: #c9d1d9;
   box-sizing: border-box;
 }
 
@@ -19,26 +26,23 @@ export const PANEL_CSS = `
   padding: 0;
 }
 
+/* Main Panel Container */
 .dh-container {
   position: fixed;
   z-index: 2147483647;
   pointer-events: auto;
   user-select: none;
-  width: 390px;
+  width: 380px;
   max-width: 94vw;
-  background: rgba(15, 23, 42, 0.94);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  transition: box-shadow 0.2s ease, opacity 0.2s ease;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  box-shadow: none;
   overflow: hidden;
 }
 
 .dh-container.dragging {
-  opacity: 0.92;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 2px rgba(99, 102, 241, 0.5);
+  border-color: #58a6ff;
   cursor: grabbing !important;
 }
 
@@ -47,9 +51,9 @@ export const PANEL_CSS = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
-  background: rgba(30, 41, 59, 0.6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 12px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
   cursor: grab;
 }
 
@@ -60,258 +64,255 @@ export const PANEL_CSS = `
 }
 
 .dh-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #10b981, #06b6d4);
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  background: #238636;
+  border: 1px solid #2ea043;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: #ffffff;
   font-weight: 700;
-  font-size: 12px;
-  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.4);
+  font-size: 10px;
+  letter-spacing: -0.02em;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #f8fafc;
-  letter-spacing: -0.01em;
+  color: #f0f6fc;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .dh-header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .dh-btn-icon {
   background: transparent;
-  border: none;
-  color: #94a3b8;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  color: #8b949e;
+  width: 24px;
+  height: 24px;
+  border-radius: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
 }
 
 .dh-btn-icon:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  background: #21262d;
+  border-color: #30363d;
+  color: #f0f6fc;
 }
 
 .dh-btn-close:hover {
-  background: rgba(239, 68, 68, 0.2) !important;
-  color: #ef4444 !important;
+  background: #3d1d24 !important;
+  border-color: #671e27 !important;
+  color: #f85149 !important;
 }
 
 /* Body */
 .dh-body {
-  padding: 14px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   max-height: 85vh;
   overflow-y: auto;
+  background: #0d1117;
 }
 
-/* Status & Badges */
+/* Status Bar */
 .dh-status-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 2px;
+  padding: 6px 10px;
 }
 
 .dh-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
 }
 
 .dh-badge-idle {
-  background: rgba(148, 163, 184, 0.15);
-  color: #cbd5e1;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: #8b949e;
 }
-.dh-badge-idle .dh-dot { background: #94a3b8; }
+.dh-badge-idle .dh-dot { background: #8b949e; }
 
 .dh-badge-running {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #3fb950;
 }
 .dh-badge-running .dh-dot {
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
-  animation: dh-pulse 1.5s infinite;
+  background: #3fb950;
 }
 
 .dh-badge-paused {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #d29922;
 }
-.dh-badge-paused .dh-dot { background: #f59e0b; }
+.dh-badge-paused .dh-dot { background: #d29922; }
 
 .dh-badge-stopped {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.3);
+  color: #f85149;
 }
-.dh-badge-stopped .dh-dot { background: #f43f5e; }
+.dh-badge-stopped .dh-dot { background: #f85149; }
 
 .dh-badge-completed {
-  background: rgba(6, 182, 212, 0.15);
-  color: #22d3ee;
-  border: 1px solid rgba(6, 182, 212, 0.3);
+  color: #58a6ff;
 }
 .dh-badge-completed .dh-dot {
-  background: #06b6d4;
-  box-shadow: 0 0 8px #06b6d4;
+  background: #58a6ff;
 }
 
 .dh-badge-error {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #f85149;
 }
-.dh-badge-error .dh-dot { background: #ef4444; }
-
-@keyframes dh-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
-}
+.dh-badge-error .dh-dot { background: #f85149; }
 
 .dh-progress-pill {
   font-size: 11px;
   font-weight: 600;
-  color: #94a3b8;
+  color: #c9d1d9;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
-/* Progress bar */
+/* Precision Progress Bar */
 .dh-progress-track {
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 9999px;
+  height: 3px;
+  background: #21262d;
+  border-radius: 0;
   overflow: hidden;
 }
 
 .dh-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #10b981, #06b6d4);
-  border-radius: 9999px;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #238636;
+  border-radius: 0;
+  transition: width 0.2s linear;
 }
 
-/* Stats Grid */
-.dh-stats-grid {
+/* Integrated Telemetry Matrix (replaces generic 3 cards in a row) */
+.dh-telemetry-matrix {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(4, 1fr);
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  overflow: hidden;
 }
 
-.dh-stat-box {
-  background: rgba(30, 41, 59, 0.45);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  padding: 8px 10px;
+.dh-telemetry-cell {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  padding: 6px 8px;
+  border-right: 1px solid #21262d;
   text-align: center;
 }
 
-.dh-stat-val {
-  font-size: 16px;
+.dh-telemetry-cell:last-child {
+  border-right: none;
+}
+
+.dh-telemetry-val {
+  font-size: 13px;
   font-weight: 700;
-  color: #f8fafc;
+  color: #f0f6fc;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
-.dh-stat-val.highlight {
-  color: #10b981;
+.dh-telemetry-val.highlight {
+  color: #3fb950;
 }
 
-.dh-stat-lbl {
-  font-size: 10px;
+.dh-telemetry-lbl {
+  font-size: 9px;
   font-weight: 600;
-  color: #94a3b8;
+  color: #8b949e;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-top: 2px;
+  letter-spacing: 0.05em;
+  margin-top: 1px;
 }
 
 /* Current Page Card */
 .dh-page-card {
-  background: rgba(30, 41, 59, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  padding: 10px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .dh-page-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  color: #64748b;
+  color: #8b949e;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .dh-page-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: #f0f6fc;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .dh-page-url {
-  font-size: 11px;
-  color: #0ea5e9;
+  font-size: 10px;
+  color: #58a6ff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 /* Operation Log */
 .dh-op-box {
-  font-size: 11px;
-  color: #cbd5e1;
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 8px;
-  padding: 8px 10px;
+  font-size: 10px;
+  color: #8b949e;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 2px;
+  padding: 6px 10px;
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-op-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
+  color: #3fb950;
 }
 
 .dh-op-text {
@@ -319,101 +320,109 @@ export const PANEL_CSS = `
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #c9d1d9;
 }
 
 /* Actions Controls */
 .dh-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   margin-top: 2px;
 }
 
 .dh-btn {
   flex: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 12px;
+  padding: 7px 10px;
+  border-radius: 2px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: all 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 .dh-btn-primary {
-  background: linear-gradient(135deg, #10b981, #059669);
+  background: #238636;
+  border-color: #2ea043;
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .dh-btn-primary:hover {
-  background: linear-gradient(135deg, #34d399, #10b981);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4);
+  background: #2ea043;
+  border-color: #3fb950;
 }
 
 .dh-btn-warning {
-  background: rgba(245, 158, 11, 0.18);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: #21262d;
+  border-color: #6e4f00;
+  color: #d29922;
 }
 
 .dh-btn-warning:hover {
-  background: rgba(245, 158, 11, 0.28);
+  background: #2c210a;
+  border-color: #bb8009;
 }
 
 .dh-btn-danger {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.3);
+  background: #21262d;
+  border-color: #671e27;
+  color: #f85149;
 }
 
 .dh-btn-danger:hover {
-  background: rgba(244, 63, 94, 0.25);
+  background: #3d1d24;
+  border-color: #b62324;
 }
 
 .dh-btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #21262d;
+  border-color: #30363d;
+  color: #c9d1d9;
 }
 
 .dh-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.14);
-  color: #f8fafc;
+  background: #30363d;
+  border-color: #8b949e;
+  color: #f0f6fc;
 }
 
 /* Queue List Section */
 .dh-queue-toggle-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
   padding: 6px 10px;
   font-size: 11px;
   font-weight: 600;
-  color: #cbd5e1;
+  color: #c9d1d9;
   display: flex;
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
-  transition: all 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 
 .dh-queue-toggle-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
-  color: #f8fafc;
+  background: #21262d;
+  border-color: #8b949e;
+  color: #f0f6fc;
 }
 
 .dh-queue-drawer {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 8px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -422,12 +431,16 @@ export const PANEL_CSS = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 8px;
-  background: rgba(30, 41, 59, 0.5);
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  padding: 5px 8px;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 2px;
   font-size: 11px;
   gap: 6px;
+}
+
+.dh-queue-item:hover {
+  border-color: #30363d;
 }
 
 .dh-queue-item-info {
@@ -442,28 +455,29 @@ export const PANEL_CSS = `
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #e2e8f0;
+  color: #c9d1d9;
   font-weight: 500;
 }
 
 .dh-queue-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
   flex-shrink: 0;
 }
 
-.dh-dot-pending { background: #64748b; }
-.dh-dot-in_progress { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
-.dh-dot-completed { background: #10b981; }
-.dh-dot-partial { background: #f59e0b; box-shadow: 0 0 4px rgba(245, 158, 11, 0.5); }
-.dh-dot-failed { background: #ef4444; }
-.dh-dot-skipped { background: #f59e0b; }
+.dh-dot-pending { background: #8b949e; }
+.dh-dot-in_progress { background: #58a6ff; }
+.dh-dot-completed { background: #3fb950; }
+.dh-dot-partial { background: #d29922; }
+.dh-dot-failed { background: #f85149; }
+.dh-dot-skipped { background: #8b949e; }
 
 .dh-queue-meta {
   font-size: 10px;
-  color: #94a3b8;
+  color: #8b949e;
   flex-shrink: 0;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-queue-actions {
@@ -473,36 +487,37 @@ export const PANEL_CSS = `
 }
 
 .dh-btn-mini {
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  border-radius: 4px;
-  color: #94a3b8;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  color: #c9d1d9;
   font-size: 10px;
   padding: 2px 6px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 
 .dh-btn-mini:hover {
-  background: rgba(255, 255, 255, 0.16);
-  color: #f8fafc;
+  background: #30363d;
+  border-color: #8b949e;
+  color: #f0f6fc;
 }
 
 /* Export Bar */
 .dh-export-bar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 10px;
+  gap: 6px;
+  border-top: 1px solid #21262d;
+  padding-top: 8px;
 }
 
 .dh-export-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
-  color: #64748b;
+  color: #8b949e;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .dh-export-buttons-row {
@@ -512,33 +527,39 @@ export const PANEL_CSS = `
 
 .dh-export-btn {
   flex: 1;
-  padding: 7px 8px;
-  border-radius: 8px;
+  padding: 6px 8px;
+  border-radius: 2px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
-  background: rgba(6, 182, 212, 0.12);
-  color: #22d3ee;
-  border: 1px solid rgba(6, 182, 212, 0.25);
+  background: #161b22;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  transition: all 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-export-btn:hover {
-  background: rgba(6, 182, 212, 0.22);
+  background: #21262d;
+  border-color: #8b949e;
+  color: #f0f6fc;
 }
 
 .dh-export-btn-primary {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2));
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.35);
+  background: #1f2937;
+  border-color: #374151;
+  color: #3fb950;
 }
 
 .dh-export-btn-primary:hover {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.3), rgba(6, 182, 212, 0.3));
+  background: #161b22;
+  border-color: #2ea043;
+  color: #2ea043;
 }
 
 /* Clear Data & Reset Action */
@@ -546,44 +567,54 @@ export const PANEL_CSS = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 4px;
+  border-top: 1px solid #21262d;
+  padding-top: 8px;
+}
+
+.dh-footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: #6e7681;
 }
 
 .dh-btn-text-danger {
   background: transparent;
   border: none;
-  color: #f43f5e;
-  font-size: 11px;
+  color: #f85149;
+  font-size: 10px;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+  padding: 2px 4px;
+  border-radius: 2px;
+  transition: color 0.1s ease;
 }
 
 .dh-btn-text-danger:hover {
-  background: rgba(244, 63, 94, 0.12);
+  text-decoration: underline;
+  color: #ff7b72;
 }
 
 /* Confirmation Box */
 .dh-confirm-box {
-  background: rgba(30, 41, 59, 0.9);
-  border: 1px solid rgba(244, 63, 94, 0.4);
-  border-radius: 8px;
-  padding: 10px;
+  background: #161b22;
+  border: 1px solid #671e27;
+  border-radius: 2px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .dh-confirm-msg {
   font-size: 11px;
-  color: #fecdd3;
-  line-height: 1.4;
+  color: #f85149;
+  line-height: 1.3;
 }
 
 .dh-confirm-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* Content Preview Modal */
@@ -593,94 +624,94 @@ export const PANEL_CSS = `
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(15, 23, 42, 0.98);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: #0d1117;
   z-index: 10;
   display: flex;
   flex-direction: column;
-  padding: 14px;
-  gap: 10px;
+  padding: 10px 12px;
+  gap: 8px;
 }
 
 .dh-preview-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 8px;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 6px;
 }
 
 .dh-preview-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  color: #f8fafc;
+  color: #f0f6fc;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 300px;
+  max-width: 280px;
 }
 
 .dh-preview-meta {
-  font-size: 11px;
-  color: #94a3b8;
+  font-size: 10px;
+  color: #8b949e;
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-preview-body {
   flex: 1;
   overflow-y: auto;
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 10px;
-  font-size: 12px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  padding: 8px 10px;
+  font-size: 11px;
   line-height: 1.5;
-  color: #e2e8f0;
+  color: #c9d1d9;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
-/* Minimized Floating Pill */
+/* Minimized Floating Block (Rectangular engineering badge, no pill or liquid glass) */
 .dh-minimized-pill {
   position: fixed;
   z-index: 2147483647;
   pointer-events: auto;
   user-select: none;
-  background: rgba(15, 23, 42, 0.95);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 9999px;
-  padding: 8px 14px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 5px 10px;
   display: flex;
   align-items: center;
   gap: 8px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.1s ease, background-color 0.1s ease;
 }
 
 .dh-minimized-pill:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
-  border-color: rgba(16, 185, 129, 0.4);
+  background: #161b22;
+  border-color: #58a6ff;
 }
 
 .dh-pill-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: #f8fafc;
+  color: #f0f6fc;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .dh-pill-count {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.15);
-  padding: 2px 7px;
-  border-radius: 9999px;
+  color: #3fb950;
+  background: #161b22;
+  border: 1px solid #21262d;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 `;

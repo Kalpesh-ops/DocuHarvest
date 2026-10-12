@@ -169,51 +169,59 @@ export class PanelController {
     let queueDrawerHtml = '';
     const discoveredList = this.session.pagesOrder.map(url => this.session.discoveredPages[url]).filter(Boolean);
 
-    if (this.session.panelQueueVisible && discoveredList.length > 0) {
-      const itemsHtml = discoveredList.map(page => {
-        let metaHtml = '';
-        let actionBtn = '';
-        const isCollected = !!this.session.collectedPages[page.url];
+    if (this.session.panelQueueVisible) {
+      if (discoveredList.length > 0) {
+        const itemsHtml = discoveredList.map(page => {
+          let metaHtml = '';
+          let actionBtn = '';
+          const isCollected = !!this.session.collectedPages[page.url];
 
-        if (page.status === 'completed') {
-          metaHtml = `<span class="dh-queue-meta">${page.wordCount || 0}w</span>`;
-        } else if (page.status === 'partial') {
-          metaHtml = `<span class="dh-queue-meta" style="color: #f59e0b;" title="${this.escapeHtml(page.warning || 'Partial extraction')}">Partial (${page.wordCount || 0}w)</span>`;
-        } else if (page.status === 'in_progress') {
-          metaHtml = `<span class="dh-queue-meta" style="color: #38bdf8;">Extracting</span>`;
-        } else if (page.status === 'failed') {
-          metaHtml = `<span class="dh-queue-meta" style="color: #ef4444;" title="${this.escapeHtml(page.error || '')}">Failed</span>`;
-          actionBtn = `<button class="dh-btn-mini dh-btn-retry" data-url="${this.escapeHtml(page.url)}">Retry</button>`;
-        } else if (page.status === 'skipped') {
-          metaHtml = `<span class="dh-queue-meta" style="color: #f59e0b;">Skipped</span>`;
-        } else if (page.status === 'pending') {
-          actionBtn = `<button class="dh-btn-mini dh-btn-skip" data-url="${this.escapeHtml(page.url)}">Skip</button>`;
-        }
+          if (page.status === 'completed') {
+            metaHtml = `<span class="dh-queue-meta">${page.wordCount || 0}w</span>`;
+          } else if (page.status === 'partial') {
+            metaHtml = `<span class="dh-queue-meta" style="color: #d29922;" title="${this.escapeHtml(page.warning || 'Partial extraction')}">Partial (${page.wordCount || 0}w)</span>`;
+          } else if (page.status === 'in_progress') {
+            metaHtml = `<span class="dh-queue-meta" style="color: #58a6ff;">Extracting</span>`;
+          } else if (page.status === 'failed') {
+            metaHtml = `<span class="dh-queue-meta" style="color: #f85149;" title="${this.escapeHtml(page.error || '')}">Failed</span>`;
+            actionBtn = `<button class="dh-btn-mini dh-btn-retry" data-url="${this.escapeHtml(page.url)}">Retry</button>`;
+          } else if (page.status === 'skipped') {
+            metaHtml = `<span class="dh-queue-meta" style="color: #8b949e;">Skipped</span>`;
+          } else if (page.status === 'pending') {
+            actionBtn = `<button class="dh-btn-mini dh-btn-skip" data-url="${this.escapeHtml(page.url)}">Skip</button>`;
+          }
 
-        const previewBtn = isCollected
-          ? `<button class="dh-btn-mini dh-btn-preview" data-url="${this.escapeHtml(page.url)}" title="Preview extracted markdown">Preview</button>`
-          : '';
+          const previewBtn = isCollected
+            ? `<button class="dh-btn-mini dh-btn-preview" data-url="${this.escapeHtml(page.url)}" title="Preview extracted markdown">Preview</button>`
+            : '';
 
-        return `
-          <div class="dh-queue-item">
-            <div class="dh-queue-item-info">
-              <span class="dh-queue-status-dot dh-dot-${page.status}"></span>
-              <span class="dh-queue-item-title" title="${this.escapeHtml(page.title)}">${this.escapeHtml(page.title)}</span>
+          return `
+            <div class="dh-queue-item">
+              <div class="dh-queue-item-info">
+                <span class="dh-queue-status-dot dh-dot-${page.status}"></span>
+                <span class="dh-queue-item-title" title="${this.escapeHtml(page.title)}">${this.escapeHtml(page.title)}</span>
+              </div>
+              <div class="dh-queue-actions">
+                ${metaHtml}
+                ${previewBtn}
+                ${actionBtn}
+              </div>
             </div>
-            <div class="dh-queue-actions">
-              ${metaHtml}
-              ${previewBtn}
-              ${actionBtn}
-            </div>
+          `;
+        }).join('');
+
+        queueDrawerHtml = `
+          <div class="dh-queue-drawer">
+            ${itemsHtml}
           </div>
         `;
-      }).join('');
-
-      queueDrawerHtml = `
-        <div class="dh-queue-drawer">
-          ${itemsHtml}
-        </div>
-      `;
+      } else {
+        queueDrawerHtml = `
+          <div class="dh-queue-drawer" style="padding: 10px; text-align: center; color: #8b949e; font-size: 11px;">
+            Queue is empty. Click "Start Collection" to discover pages.
+          </div>
+        `;
+      }
     }
 
     // Export Bar (Markdown, JSON, CSV)
@@ -222,15 +230,15 @@ export class PanelController {
         <span class="dh-export-label">Download Bundle (${stats.collected} pages, ~${stats.totalWords} words)</span>
         <div class="dh-export-buttons-row">
           <button id="dh-btn-export-md" class="dh-export-btn dh-export-btn-primary" title="Export primary documentation-bundle.md">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Markdown (.md)
           </button>
           <button id="dh-btn-export-json" class="dh-export-btn" title="Export structured documentation-bundle.json">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             JSON
           </button>
           <button id="dh-btn-export-csv" class="dh-export-btn" title="Export tabular documentation-bundle.csv">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
             CSV
           </button>
         </div>
@@ -253,7 +261,13 @@ export class PanelController {
       clearDataHtml = `
         <div class="dh-footer-bar">
           <button id="dh-btn-clear-data" class="dh-btn-text-danger" title="Clear all collected documentation data">Clear Stored Data</button>
-          <span style="font-size: 10px; color: #64748b;">DocuHarvest v0.1.0</span>
+          <div class="dh-footer-meta">
+            <span title="All data stored strictly in local browser storage">Local (Zero Telemetry)</span>
+            <span>•</span>
+            <span title="Open Source License">MIT</span>
+            <span>•</span>
+            <span>v0.1.0</span>
+          </div>
         </div>
       `;
     }
@@ -272,7 +286,7 @@ export class PanelController {
               <div class="dh-preview-meta">
                 <span>${previewPage.wordCount} words</span>
                 <span>•</span>
-                <span>${previewPage.isComplete ? '✓ Complete' : '⚠ Partial'}</span>
+                <span>${previewPage.isComplete ? 'COMPLETE' : 'PARTIAL'}</span>
                 ${breadcrumbStr ? `<span>•</span> <span>${this.escapeHtml(breadcrumbStr)}</span>` : ''}
               </div>
             </div>
@@ -316,19 +330,23 @@ export class PanelController {
           <div class="dh-progress-fill" style="width: ${stats.progressPercentage}%"></div>
         </div>
 
-        <!-- Counters Grid -->
-        <div class="dh-stats-grid">
-          <div class="dh-stat-box">
-            <span class="dh-stat-val">${stats.discovered}</span>
-            <span class="dh-stat-lbl">Discovered</span>
+        <!-- Precision Telemetry Matrix (replaces generic 3 cards in a row) -->
+        <div class="dh-telemetry-matrix">
+          <div class="dh-telemetry-cell">
+            <span class="dh-telemetry-val">${stats.discovered}</span>
+            <span class="dh-telemetry-lbl">Discovered</span>
           </div>
-          <div class="dh-stat-box">
-            <span class="dh-stat-val highlight">${stats.collected}</span>
-            <span class="dh-stat-lbl">Collected</span>
+          <div class="dh-telemetry-cell">
+            <span class="dh-telemetry-val highlight">${stats.collected}</span>
+            <span class="dh-telemetry-lbl">Collected</span>
           </div>
-          <div class="dh-stat-box">
-            <span class="dh-stat-val">${stats.remaining}</span>
-            <span class="dh-stat-lbl">Remaining</span>
+          <div class="dh-telemetry-cell">
+            <span class="dh-telemetry-val">${stats.remaining}</span>
+            <span class="dh-telemetry-lbl">Remaining</span>
+          </div>
+          <div class="dh-telemetry-cell">
+            <span class="dh-telemetry-val">${stats.totalWords > 0 ? `${Math.round(stats.totalWords / 100) / 10}k` : '0'}</span>
+            <span class="dh-telemetry-lbl">Words</span>
           </div>
         </div>
 
@@ -341,7 +359,7 @@ export class PanelController {
 
         <!-- Current Operation Log -->
         <div class="dh-op-box">
-          <svg class="dh-op-icon" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2">
+          <svg class="dh-op-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/>
           </svg>
           <span class="dh-op-text" title="${this.escapeHtml(currentOperation)}">${this.escapeHtml(currentOperation)}</span>
@@ -378,7 +396,7 @@ export class PanelController {
   }
 
   /**
-   * Renders the compact minimized pill badge.
+   * Renders the compact minimized badge.
    */
   private renderMinimized(): void {
     if (!this.container) return;
@@ -390,15 +408,12 @@ export class PanelController {
     this.applyPosition();
 
     this.container.innerHTML = `
-      <div class="dh-icon" style="width: 18px; height: 18px; font-size: 10px;">DH</div>
+      <div class="dh-icon" style="width: 16px; height: 16px; font-size: 9px;">DH</div>
       <span class="dh-pill-title">DocuHarvest</span>
       <span class="dh-pill-count">${stats.collected}/${stats.discovered}</span>
-      <span class="dh-dot" style="background: ${status === 'running' ? '#10b981' : '#94a3b8'}"></span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #94a3b8;">
-        <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-      </svg>
-      <button id="dh-btn-close-pill" class="dh-btn-icon dh-btn-close dh-pill-close" title="Exit / Close panel" style="width: 18px; height: 18px; margin-left: 2px;">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <span class="dh-dot" style="background: ${status === 'running' ? '#3fb950' : '#8b949e'}"></span>
+      <button id="dh-btn-close-pill" class="dh-btn-icon dh-btn-close dh-pill-close" title="Exit / Close panel" style="width: 20px; height: 20px; margin-left: 2px;">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     `;
 
