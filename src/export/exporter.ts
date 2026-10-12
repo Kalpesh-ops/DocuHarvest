@@ -380,25 +380,67 @@ export function triggerBrowserDownload(filename: string, content: string, mimeTy
 }
 
 /**
- * Downloads compiled Markdown file (documentation-bundle.md).
+ * Generates an informative, contextual export filename based on the site domain and date.
  */
-export function exportAsMarkdown(session: HarvestSession): void {
+export function getContextualFilename(session: HarvestSession, ext: string): string {
+  let slug = 'bundle';
+  try {
+    if (session.currentUrl) {
+      const parsed = new URL(session.currentUrl);
+      const hostPart = parsed.hostname.replace(/^www\./, '').replace(/\./g, '-');
+      const pathPart = parsed.pathname.replace(/^\/+|\/+$/g, '').replace(/[\/\\]+/g, '-');
+      const combined = [hostPart, pathPart].filter(Boolean).join('-');
+      slug = slugify(combined) || 'bundle';
+    }
+  } catch {
+    slug = 'bundle';
+  }
+  const dateStr = new Date().toISOString().slice(0, 10);
+  return `docuharvest-${slug}-${dateStr}.${ext}`;
+}
+
+/**
+ * Copies compiled markdown directly to the system clipboard.
+ */
+export async function copyMarkdownToClipboard(session: HarvestSession): Promise<boolean> {
   const md = compileMasterMarkdown(session);
-  triggerBrowserDownload('documentation-bundle.md', md, 'text/markdown;charset=utf-8');
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(md);
+      return true;
+    }
+  } catch (err) {
+    console.warn('[DocuHarvest] Clipboard write failed:', err);
+  }
+  return false;
 }
 
 /**
- * Downloads compiled JSON file (documentation-bundle.json).
+ * Downloads compiled Markdown file with contextual naming.
  */
-export function exportAsJson(session: HarvestSession): void {
+export function exportAsMarkdown(session: HarvestSession): string {
+  const md = compileMasterMarkdown(session);
+  const filename = getContextualFilename(session, 'md');
+  triggerBrowserDownload(filename, md, 'text/markdown;charset=utf-8');
+  return filename;
+}
+
+/**
+ * Downloads compiled JSON file with contextual naming.
+ */
+export function exportAsJson(session: HarvestSession): string {
   const json = compileStructuredJson(session);
-  triggerBrowserDownload('documentation-bundle.json', json, 'application/json;charset=utf-8');
+  const filename = getContextualFilename(session, 'json');
+  triggerBrowserDownload(filename, json, 'application/json;charset=utf-8');
+  return filename;
 }
 
 /**
- * Downloads compiled CSV file (documentation-bundle.csv).
+ * Downloads compiled CSV file with contextual naming.
  */
-export function exportAsCsv(session: HarvestSession): void {
+export function exportAsCsv(session: HarvestSession): string {
   const csv = compileStructuredCsv(session);
-  triggerBrowserDownload('documentation-bundle.csv', csv, 'text/csv;charset=utf-8');
+  const filename = getContextualFilename(session, 'csv');
+  triggerBrowserDownload(filename, csv, 'text/csv;charset=utf-8');
+  return filename;
 }

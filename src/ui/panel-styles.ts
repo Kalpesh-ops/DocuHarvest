@@ -33,7 +33,7 @@ export const PANEL_CSS = `
   pointer-events: auto;
   user-select: none;
   width: 380px;
-  max-width: 94vw;
+  max-width: calc(100vw - 20px);
   background: #0d1117;
   border: 1px solid #30363d;
   border-radius: 4px;
@@ -113,6 +113,12 @@ export const PANEL_CSS = `
   color: #f0f6fc;
 }
 
+.dh-btn-icon.active {
+  background: #21262d;
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
 .dh-btn-close:hover {
   background: #3d1d24 !important;
   border-color: #671e27 !important;
@@ -128,6 +134,7 @@ export const PANEL_CSS = `
   max-height: 85vh;
   overflow-y: auto;
   background: #0d1117;
+  position: relative;
 }
 
 /* Status Bar */
@@ -215,7 +222,7 @@ export const PANEL_CSS = `
   transition: width 0.2s linear;
 }
 
-/* Integrated Telemetry Matrix (replaces generic 3 cards in a row) */
+/* Integrated Telemetry Matrix */
 .dh-telemetry-matrix {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -228,7 +235,7 @@ export const PANEL_CSS = `
 .dh-telemetry-cell {
   display: flex;
   flex-direction: column;
-  padding: 6px 8px;
+  padding: 6px 6px;
   border-right: 1px solid #21262d;
   text-align: center;
 }
@@ -238,7 +245,7 @@ export const PANEL_CSS = `
 }
 
 .dh-telemetry-val {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #f0f6fc;
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
@@ -257,6 +264,69 @@ export const PANEL_CSS = `
   margin-top: 1px;
 }
 
+/* Settings Drawer */
+.dh-settings-drawer {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dh-settings-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: #f0f6fc;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 4px;
+}
+
+.dh-settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dh-settings-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #8b949e;
+}
+
+.dh-settings-input {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  color: #f0f6fc;
+  font-size: 11px;
+  padding: 4px 6px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  outline: none;
+}
+
+.dh-settings-input:focus {
+  border-color: #58a6ff;
+}
+
+.dh-settings-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #c9d1d9;
+  cursor: pointer;
+}
+
+.dh-settings-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 /* Current Page Card */
 .dh-page-card {
   background: #161b22;
@@ -268,12 +338,28 @@ export const PANEL_CSS = `
   gap: 3px;
 }
 
+.dh-page-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .dh-page-label {
   font-size: 9px;
   font-weight: 600;
   color: #8b949e;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.dh-prefix-badge {
+  font-size: 9px;
+  color: #58a6ff;
+  background: #0d1117;
+  border: 1px solid #21262d;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-page-title {
@@ -422,16 +508,71 @@ export const PANEL_CSS = `
   padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 200px;
+  gap: 6px;
+  max-height: 240px;
   overflow-y: auto;
+}
+
+/* Queue Search & Filter Bar */
+.dh-queue-search-row {
+  display: flex;
+  gap: 4px;
+}
+
+.dh-queue-search-input {
+  flex: 1;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  color: #f0f6fc;
+  font-size: 10px;
+  padding: 4px 6px;
+  font-family: system-ui, -apple-system, sans-serif;
+  outline: none;
+}
+
+.dh-queue-search-input:focus {
+  border-color: #58a6ff;
+}
+
+.dh-queue-filters {
+  display: flex;
+  gap: 2px;
+}
+
+.dh-queue-filter-btn {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 2px;
+  color: #8b949e;
+  font-size: 9px;
+  padding: 2px 5px;
+  cursor: pointer;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+}
+
+.dh-queue-filter-btn.active {
+  background: #21262d;
+  border-color: #58a6ff;
+  color: #58a6ff;
+  font-weight: 700;
+}
+
+/* Queue Bulk Actions Bar */
+.dh-queue-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid #21262d;
+  margin-bottom: 2px;
 }
 
 .dh-queue-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 8px;
+  padding: 4px 6px;
   background: #161b22;
   border: 1px solid #21262d;
   border-radius: 2px;
@@ -491,8 +632,8 @@ export const PANEL_CSS = `
   border: 1px solid #30363d;
   border-radius: 2px;
   color: #c9d1d9;
-  font-size: 10px;
-  padding: 2px 6px;
+  font-size: 9px;
+  padding: 2px 5px;
   cursor: pointer;
   transition: background-color 0.1s ease, border-color 0.1s ease;
 }
@@ -522,14 +663,14 @@ export const PANEL_CSS = `
 
 .dh-export-buttons-row {
   display: flex;
-  gap: 6px;
+  gap: 4px;
 }
 
 .dh-export-btn {
   flex: 1;
-  padding: 6px 8px;
+  padding: 5px 6px;
   border-radius: 2px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   cursor: pointer;
   background: #161b22;
@@ -568,15 +709,16 @@ export const PANEL_CSS = `
   align-items: center;
   justify-content: space-between;
   border-top: 1px solid #21262d;
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
 .dh-footer-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
+  gap: 6px;
+  font-size: 9px;
   color: #6e7681;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 .dh-btn-text-danger {
@@ -647,7 +789,7 @@ export const PANEL_CSS = `
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
+  max-width: 240px;
 }
 
 .dh-preview-meta {
@@ -673,7 +815,30 @@ export const PANEL_CSS = `
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
 
-/* Minimized Floating Block (Rectangular engineering badge, no pill or liquid glass) */
+/* Toast Notice */
+.dh-toast {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  background: #238636;
+  border: 1px solid #2ea043;
+  color: #ffffff;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 2px;
+  text-align: center;
+  z-index: 20;
+  animation: dh-fade-in 0.15s ease-out;
+}
+
+@keyframes dh-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Minimized Floating Block */
 .dh-minimized-pill {
   position: fixed;
   z-index: 2147483647;

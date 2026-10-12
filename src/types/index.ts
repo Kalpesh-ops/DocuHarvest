@@ -169,6 +169,7 @@ export interface HarvestSession {
   updatedAt: number;
   panelMinimized: boolean;
   panelQueueVisible: boolean;
+  panelSettingsVisible?: boolean;
   previewPageUrl: string | null;
   panelPosition: { x: number; y: number };
   config: HarvestConfig;
@@ -199,9 +200,15 @@ export interface PanelEvents {
   onExportCsv: () => void;
   onToggleMinimize: () => void;
   onToggleQueue: () => void;
+  onToggleSettings?: () => void;
   onPreviewPage: (url: string | null) => void;
   onPositionChange: (pos: { x: number; y: number }) => void;
   onRetryPage?: (url: string) => void;
   onSkipPage?: (url: string) => void;
+  onPrioritizePage?: (url: string) => void;
+  onSkipAllPending?: () => void;
+  onRetryAllFailed?: () => void;
+  onUpdateConfig?: (cfg: Partial<HarvestConfig>) => void;
+  onCopyMarkdown?: () => void;
   onClose?: () => void;
 }

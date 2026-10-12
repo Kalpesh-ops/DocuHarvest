@@ -11,10 +11,11 @@ import {
   normalizeUrl,
   subscribeToSessionChanges,
   updateSessionPartial,
+  computeSessionStats,
 } from '../src/storage/storage';
 import { CollectionOrchestrator } from '../src/orchestrator/collection-orchestrator';
 import { PanelController } from '../src/ui/panel';
-import { exportAsCsv, exportAsJson, exportAsMarkdown } from '../src/export/exporter';
+import { exportAsCsv, exportAsJson, exportAsMarkdown, copyMarkdownToClipboard } from '../src/export/exporter';
 import { HarvestSession } from '../src/types';
 
 export default defineContentScript({
@@ -104,6 +105,55 @@ export default defineContentScript({
         },
         onRetryPage: async (url: string) => {
           if (orchestrator) await orchestrator.retryPage(url);
+        },
+        onToggleSettings: async () => {
+          session.panelSettingsVisible = !session.panelSettingsVisible;
+          await updateSessionPartial({ panelSettingsVisible: session.panelSettingsVisible });
+          panel?.render(session);
+        },
+        onUpdateConfig: async (cfg) => {
+          session.config = { ...session.config, ...cfg };
+          await updateSessionPartial({ config: session.config });
+          orchestrator?.updateSessionLocal(session);
+          panel?.render(session);
+        },
+        onSkipAllPending: async () => {
+          for (const url of session.queue) {
+            const page = session.discoveredPages[url];
+            if (page && page.status === 'pending') {
+              page.status = 'skipped';
+              page.skippedReason = 'Skipped by user (bulk)';
+            }
+          }
+          session.queue = [];
+          const stats = computeSessionStats(session);
+          session.progressPercentage = stats.progressPercentage;
+          await updateSessionPartial(session);
+          panel?.render(session);
+        },
+        onRetryAllFailed: async () => {
+          for (const page of Object.values(session.discoveredPages)) {
+            if (page.status === 'failed') {
+              page.status = 'pending';
+              page.error = undefined;
+              page.retryCount = 0;
+              if (!session.queue.includes(page.url)) {
+                session.queue.push(page.url);
+              }
+            }
+          }
+          const stats = computeSessionStats(session);
+          session.progressPercentage = stats.progressPercentage;
+          await updateSessionPartial(session);
+          panel?.render(session);
+        },
+        onPrioritizePage: async (url) => {
+          session.queue = [url, ...session.queue.filter(u => u !== url)];
+          await updateSessionPartial({ queue: session.queue });
+          panel?.render(session);
+        },
+        onCopyMarkdown: async () => {
+          await copyMarkdownToClipboard(session);
         },
         onClose: async () => {
           if (orchestrator && orchestrator.getSession().status === 'running') {

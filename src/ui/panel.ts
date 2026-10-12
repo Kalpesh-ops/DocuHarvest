@@ -1,12 +1,14 @@
 /**
  * DocuHarvest - Floating Control Panel with Isolated Shadow DOM
- * Viewport pinning, drag physics, event isolation, queue inspector,
- * content preview modal, and multi-format export controls.
+ * Industrial-grade technical design system, responsive window clamping,
+ * queue search/filtering, bulk controls, live telemetry & ETA,
+ * in-panel configuration drawer, clipboard portability, and keyboard accessibility.
  */
 
 import { HarvestSession, PanelEvents } from '../types';
 import { computeSessionStats } from '../storage/storage';
 import { PANEL_CSS } from './panel-styles';
+import { copyMarkdownToClipboard } from '../export/exporter';
 
 export class PanelController {
   private host: HTMLElement | null = null;
@@ -21,6 +23,13 @@ export class PanelController {
   private containerStartY: number = 0;
   private hasMoved: boolean = false;
   private showClearConfirm: boolean = false;
+  private queueSearchQuery: string = '';
+  private queueStatusFilter: string = 'all';
+  private toastMessage: string | null = null;
+  private toastTimer: any = null;
+
+  private resizeHandler = () => this.applyPosition();
+  private keydownHandler = (e: KeyboardEvent) => this.handleGlobalKeydown(e);
 
   constructor(session: HarvestSession, events: PanelEvents) {
     this.session = session;
@@ -42,6 +51,8 @@ export class PanelController {
 
     this.host = document.createElement('div');
     this.host.id = 'docuharvest-root';
+    this.host.setAttribute('role', 'region');
+    this.host.setAttribute('aria-label', 'DocuHarvest Control Panel');
     this.host.style.cssText = `
       all: initial !important;
       position: fixed !important;
@@ -69,6 +80,9 @@ export class PanelController {
     this.container.addEventListener('mouseup', stopPropagation);
     this.container.addEventListener('touchstart', stopPropagation);
 
+    window.addEventListener('resize', this.resizeHandler);
+    window.addEventListener('keydown', this.keydownHandler);
+
     this.render(this.session);
 
     const mountTarget = document.body || document.documentElement;
@@ -79,6 +93,13 @@ export class PanelController {
    * Destroys or removes the panel from the DOM safely.
    */
   public destroy(): void {
+    window.removeEventListener('resize', this.resizeHandler);
+    window.removeEventListener('keydown', this.keydownHandler);
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+
     if (this.host && this.host.parentNode) {
       try {
         this.host.parentNode.removeChild(this.host);
@@ -90,6 +111,50 @@ export class PanelController {
 
   public unmount(): void {
     this.destroy();
+  }
+
+  /**
+   * Shows a transient positive notification toast.
+   */
+  public showToast(msg: string): void {
+    this.toastMessage = msg;
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+    }
+    this.render(this.session);
+    this.toastTimer = setTimeout(() => {
+      this.toastMessage = null;
+      this.toastTimer = null;
+      this.render(this.session);
+    }, 2200);
+  }
+
+  /**
+   * Global keyboard shortcut handler.
+   */
+  private handleGlobalKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      if (this.session.previewPageUrl) {
+        e.preventDefault();
+        this.events.onPreviewPage(null);
+      } else if (this.showClearConfirm) {
+        e.preventDefault();
+        this.showClearConfirm = false;
+        this.render(this.session);
+      } else if (this.session.panelSettingsVisible && this.events.onToggleSettings) {
+        e.preventDefault();
+        this.events.onToggleSettings();
+      } else if (this.session.panelQueueVisible) {
+        e.preventDefault();
+        this.events.onToggleQueue();
+      } else {
+        e.preventDefault();
+        this.events.onToggleMinimize();
+      }
+    } else if (e.altKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+      e.preventDefault();
+      this.events.onToggleMinimize();
+    }
   }
 
   /**
@@ -121,125 +186,208 @@ export class PanelController {
     const badgeClass = `dh-badge dh-badge-${status}`;
     const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 
+    // Calculate throughput and ETA
+    let etaText = `~${stats.remaining} left`;
+    if (status === 'running' && this.session.startedAt && stats.collected > 0) {
+      const elapsedSec = (Date.now() - this.session.startedAt) / 1000;
+      const secPerPage = elapsedSec / stats.collected;
+      const remainingSec = Math.round(secPerPage * stats.remaining);
+      if (remainingSec < 60) {
+        etaText = `ETA: <1m`;
+      } else {
+        const mins = Math.floor(remainingSec / 60);
+        const secs = remainingSec % 60;
+        etaText = `ETA: ~${mins}m ${secs}s`;
+      }
+    }
+
     // Action button states
     let actionButtonsHtml = '';
     if (status === 'idle' || status === 'completed') {
       actionButtonsHtml = `
         <button id="dh-btn-start" class="dh-btn dh-btn-primary">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           ${status === 'completed' ? 'Restart Harvest' : 'Start Collection'}
         </button>
       `;
     } else if (status === 'running') {
       actionButtonsHtml = `
         <button id="dh-btn-pause" class="dh-btn dh-btn-warning">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
           Pause
         </button>
         <button id="dh-btn-stop" class="dh-btn dh-btn-danger">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
           Stop
         </button>
       `;
     } else if (status === 'paused') {
       actionButtonsHtml = `
         <button id="dh-btn-resume" class="dh-btn dh-btn-primary">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Resume
         </button>
         <button id="dh-btn-stop" class="dh-btn dh-btn-danger">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
           Stop
         </button>
       `;
     } else if (status === 'stopped' || status === 'error') {
       actionButtonsHtml = `
         <button id="dh-btn-start" class="dh-btn dh-btn-primary">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           Resume / Start
         </button>
         <button id="dh-btn-reset" class="dh-btn dh-btn-secondary">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
           Reset
         </button>
       `;
     }
 
-    // Queue List Drawer
+    // Configuration Settings Drawer (Flaw 6)
+    let settingsDrawerHtml = '';
+    if (this.session.panelSettingsVisible) {
+      const cfg = this.session.config;
+      settingsDrawerHtml = `
+        <div id="dh-settings-drawer" class="dh-settings-drawer">
+          <div class="dh-settings-title">Extraction Parameters</div>
+          <div class="dh-settings-row">
+            <label class="dh-settings-label">Rate Limit Pause (ms):</label>
+            <input id="dh-cfg-ratelimit" type="number" class="dh-settings-input" value="${cfg.rateLimitMs}" min="100" max="10000" step="100">
+          </div>
+          <div class="dh-settings-row">
+            <label class="dh-settings-label">URL Prefix Restriction:</label>
+            <input id="dh-cfg-urlprefix" type="text" class="dh-settings-input" value="${this.escapeHtml(cfg.urlPrefix)}" placeholder="/docs">
+          </div>
+          <div class="dh-settings-row">
+            <label class="dh-settings-label">Custom Content Selector:</label>
+            <input id="dh-cfg-selector" type="text" class="dh-settings-input" value="${this.escapeHtml(cfg.contentSelector || '')}" placeholder="main, article, .content">
+          </div>
+          <label class="dh-settings-checkbox-row">
+            <input id="dh-cfg-accordions" type="checkbox" ${cfg.expandAccordions ? 'checked' : ''}>
+            <span>Expand documentation accordions</span>
+          </label>
+          <label class="dh-settings-checkbox-row">
+            <input id="dh-cfg-tabs" type="checkbox" ${cfg.captureTabs ? 'checked' : ''}>
+            <span>Capture multi-tab code snippets</span>
+          </label>
+          <label class="dh-settings-checkbox-row">
+            <input id="dh-cfg-autoscroll" type="checkbox" ${cfg.autoScroll ? 'checked' : ''}>
+            <span>Auto-scroll viewport during capture</span>
+          </label>
+          <div class="dh-settings-actions">
+            <button id="dh-btn-save-settings" class="dh-btn dh-btn-primary" style="padding: 4px 8px; font-size: 10px;">Save Configuration</button>
+            <button id="dh-btn-close-settings" class="dh-btn dh-btn-secondary" style="padding: 4px 8px; font-size: 10px;">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Queue List Drawer with Search & Filters (Flaws 9, 10, 13)
     let queueDrawerHtml = '';
     const discoveredList = this.session.pagesOrder.map(url => this.session.discoveredPages[url]).filter(Boolean);
 
     if (this.session.panelQueueVisible) {
-      if (discoveredList.length > 0) {
-        const itemsHtml = discoveredList.map(page => {
-          let metaHtml = '';
-          let actionBtn = '';
-          const isCollected = !!this.session.collectedPages[page.url];
+      let filtered = discoveredList;
 
-          if (page.status === 'completed') {
-            metaHtml = `<span class="dh-queue-meta">${page.wordCount || 0}w</span>`;
-          } else if (page.status === 'partial') {
-            metaHtml = `<span class="dh-queue-meta" style="color: #d29922;" title="${this.escapeHtml(page.warning || 'Partial extraction')}">Partial (${page.wordCount || 0}w)</span>`;
-          } else if (page.status === 'in_progress') {
-            metaHtml = `<span class="dh-queue-meta" style="color: #58a6ff;">Extracting</span>`;
-          } else if (page.status === 'failed') {
-            metaHtml = `<span class="dh-queue-meta" style="color: #f85149;" title="${this.escapeHtml(page.error || '')}">Failed</span>`;
-            actionBtn = `<button class="dh-btn-mini dh-btn-retry" data-url="${this.escapeHtml(page.url)}">Retry</button>`;
-          } else if (page.status === 'skipped') {
-            metaHtml = `<span class="dh-queue-meta" style="color: #8b949e;">Skipped</span>`;
-          } else if (page.status === 'pending') {
-            actionBtn = `<button class="dh-btn-mini dh-btn-skip" data-url="${this.escapeHtml(page.url)}">Skip</button>`;
-          }
-
-          const previewBtn = isCollected
-            ? `<button class="dh-btn-mini dh-btn-preview" data-url="${this.escapeHtml(page.url)}" title="Preview extracted markdown">Preview</button>`
-            : '';
-
-          return `
-            <div class="dh-queue-item">
-              <div class="dh-queue-item-info">
-                <span class="dh-queue-status-dot dh-dot-${page.status}"></span>
-                <span class="dh-queue-item-title" title="${this.escapeHtml(page.title)}">${this.escapeHtml(page.title)}</span>
-              </div>
-              <div class="dh-queue-actions">
-                ${metaHtml}
-                ${previewBtn}
-                ${actionBtn}
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        queueDrawerHtml = `
-          <div class="dh-queue-drawer">
-            ${itemsHtml}
-          </div>
-        `;
-      } else {
-        queueDrawerHtml = `
-          <div class="dh-queue-drawer" style="padding: 10px; text-align: center; color: #8b949e; font-size: 11px;">
-            Queue is empty. Click "Start Collection" to discover pages.
-          </div>
-        `;
+      if (this.queueStatusFilter !== 'all') {
+        filtered = filtered.filter(p => p.status === this.queueStatusFilter);
       }
+
+      if (this.queueSearchQuery.trim()) {
+        const q = this.queueSearchQuery.trim().toLowerCase();
+        filtered = filtered.filter(p => p.title.toLowerCase().includes(q) || p.url.toLowerCase().includes(q));
+      }
+
+      const itemsHtml = filtered.length > 0 ? filtered.map(page => {
+        let metaHtml = '';
+        let actionBtn = '';
+        const isCollected = !!this.session.collectedPages[page.url];
+
+        if (page.status === 'completed') {
+          metaHtml = `<span class="dh-queue-meta">${page.wordCount || 0}w</span>`;
+        } else if (page.status === 'partial') {
+          metaHtml = `<span class="dh-queue-meta" style="color: #d29922;" title="${this.escapeHtml(page.warning || 'Partial extraction')}">Partial (${page.wordCount || 0}w)</span>`;
+        } else if (page.status === 'in_progress') {
+          metaHtml = `<span class="dh-queue-meta" style="color: #58a6ff;">Extracting</span>`;
+        } else if (page.status === 'failed') {
+          metaHtml = `<span class="dh-queue-meta" style="color: #f85149;" title="${this.escapeHtml(page.error || '')}">Failed</span>`;
+          actionBtn = `<button class="dh-btn-mini dh-btn-retry" data-url="${this.escapeHtml(page.url)}">Retry</button>`;
+        } else if (page.status === 'skipped') {
+          metaHtml = `<span class="dh-queue-meta" style="color: #8b949e;">Skipped</span>`;
+        } else if (page.status === 'pending') {
+          actionBtn = `
+            <button class="dh-btn-mini dh-btn-prioritize" data-url="${this.escapeHtml(page.url)}" title="Move to top of queue">Top</button>
+            <button class="dh-btn-mini dh-btn-skip" data-url="${this.escapeHtml(page.url)}">Skip</button>
+          `;
+        }
+
+        const previewBtn = isCollected
+          ? `<button class="dh-btn-mini dh-btn-preview" data-url="${this.escapeHtml(page.url)}" title="Preview extracted markdown">Preview</button>`
+          : '';
+
+        return `
+          <div class="dh-queue-item">
+            <div class="dh-queue-item-info">
+              <span class="dh-queue-status-dot dh-dot-${page.status}"></span>
+              <span class="dh-queue-item-title" title="${this.escapeHtml(page.title)}">${this.escapeHtml(page.title)}</span>
+            </div>
+            <div class="dh-queue-actions">
+              ${metaHtml}
+              ${previewBtn}
+              ${actionBtn}
+            </div>
+          </div>
+        `;
+      }).join('') : `
+        <div style="padding: 10px; text-align: center; color: #8b949e; font-size: 11px;">
+          ${discoveredList.length === 0 ? 'Queue is empty. Click "Start Collection" to discover pages.' : 'No pages match the current filter.'}
+        </div>
+      `;
+
+      queueDrawerHtml = `
+        <div class="dh-queue-drawer">
+          <!-- Queue Search & Filter Bar -->
+          <div class="dh-queue-search-row">
+            <input id="dh-queue-search" type="text" class="dh-queue-search-input" placeholder="Search queue by title or URL..." value="${this.escapeHtml(this.queueSearchQuery)}">
+          </div>
+          <div class="dh-queue-filters">
+            <button class="dh-queue-filter-btn ${this.queueStatusFilter === 'all' ? 'active' : ''}" data-filter="all">ALL (${discoveredList.length})</button>
+            <button class="dh-queue-filter-btn ${this.queueStatusFilter === 'pending' ? 'active' : ''}" data-filter="pending">PENDING (${stats.remaining})</button>
+            <button class="dh-queue-filter-btn ${this.queueStatusFilter === 'completed' ? 'active' : ''}" data-filter="completed">DONE (${stats.collected})</button>
+            <button class="dh-queue-filter-btn ${this.queueStatusFilter === 'failed' ? 'active' : ''}" data-filter="failed">ERR (${stats.failed})</button>
+            <button class="dh-queue-filter-btn ${this.queueStatusFilter === 'skipped' ? 'active' : ''}" data-filter="skipped">SKIP (${stats.skipped})</button>
+          </div>
+          <div class="dh-queue-bulk-bar">
+            <button id="dh-btn-skip-all-pending" class="dh-btn-mini" title="Skip all currently pending items in queue">Skip All Pending</button>
+            <button id="dh-btn-retry-all-failed" class="dh-btn-mini" title="Re-queue all failed items">Retry All Failed</button>
+          </div>
+          ${itemsHtml}
+        </div>
+      `;
     }
 
-    // Export Bar (Markdown, JSON, CSV)
+    // Export Bar (Markdown, JSON, CSV, Copy MD) (Flaws 18, 19, 20)
     const exportBarHtml = stats.collected > 0 ? `
       <div class="dh-export-bar">
-        <span class="dh-export-label">Download Bundle (${stats.collected} pages, ~${stats.totalWords} words)</span>
+        <span class="dh-export-label">Export Data (${stats.collected} pages, ~${stats.totalWords} words)</span>
         <div class="dh-export-buttons-row">
-          <button id="dh-btn-export-md" class="dh-export-btn dh-export-btn-primary" title="Export primary documentation-bundle.md">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Markdown (.md)
+          <button id="dh-btn-export-md" class="dh-export-btn dh-export-btn-primary" title="Export markdown bundle">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            .MD
           </button>
-          <button id="dh-btn-export-json" class="dh-export-btn" title="Export structured documentation-bundle.json">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <button id="dh-btn-export-json" class="dh-export-btn" title="Export structured JSON">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             JSON
           </button>
-          <button id="dh-btn-export-csv" class="dh-export-btn" title="Export tabular documentation-bundle.csv">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+          <button id="dh-btn-export-csv" class="dh-export-btn" title="Export tabular CSV">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
             CSV
+          </button>
+          <button id="dh-btn-copy-md" class="dh-export-btn" title="Copy compiled markdown to clipboard">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy
           </button>
         </div>
       </div>
@@ -250,7 +398,7 @@ export class PanelController {
     if (this.showClearConfirm) {
       clearDataHtml = `
         <div class="dh-confirm-box">
-          <div class="dh-confirm-msg">Delete all collected documentation and reset state? This cannot be undone.</div>
+          <div class="dh-confirm-msg">Delete all ${stats.collected} collected documentation pages (~${stats.totalWords} words)? This cannot be undone.</div>
           <div class="dh-confirm-actions">
             <button id="dh-btn-confirm-clear" class="dh-btn dh-btn-danger" style="padding: 4px 8px; font-size: 11px;">Yes, Delete All</button>
             <button id="dh-btn-cancel-clear" class="dh-btn dh-btn-secondary" style="padding: 4px 8px; font-size: 11px;">Cancel</button>
@@ -258,28 +406,30 @@ export class PanelController {
         </div>
       `;
     } else {
+      const sessionBytes = JSON.stringify(this.session).length;
+      const storageKb = Math.round(sessionBytes / 1024);
       clearDataHtml = `
         <div class="dh-footer-bar">
           <button id="dh-btn-clear-data" class="dh-btn-text-danger" title="Clear all collected documentation data">Clear Stored Data</button>
           <div class="dh-footer-meta">
-            <span title="All data stored strictly in local browser storage">Local (Zero Telemetry)</span>
+            <span title="Estimated storage size in local browser database">Storage: ${storageKb} KB</span>
+            <span>•</span>
+            <span title="All data stored strictly in local browser storage">Local Private</span>
             <span>•</span>
             <span title="Open Source License">MIT</span>
-            <span>•</span>
-            <span>v0.1.0</span>
           </div>
         </div>
       `;
     }
 
-    // Preview Modal Overlay
+    // Preview Modal Overlay (Flaw 3, 20)
     let previewModalHtml = '';
     if (this.session.previewPageUrl && this.session.collectedPages[this.session.previewPageUrl]) {
       const previewPage = this.session.collectedPages[this.session.previewPageUrl];
       const breadcrumbStr = previewPage.breadcrumbs ? previewPage.breadcrumbs.join(' > ') : '';
 
       previewModalHtml = `
-        <div class="dh-preview-modal">
+        <div class="dh-preview-modal" role="dialog" aria-label="Page Preview">
           <div class="dh-preview-header">
             <div>
               <div class="dh-preview-title">${this.escapeHtml(previewPage.title)}</div>
@@ -290,14 +440,20 @@ export class PanelController {
                 ${breadcrumbStr ? `<span>•</span> <span>${this.escapeHtml(breadcrumbStr)}</span>` : ''}
               </div>
             </div>
-            <button id="dh-btn-close-preview" class="dh-btn-icon" title="Close preview">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <button id="dh-btn-copy-preview" class="dh-btn-mini" title="Copy page markdown to clipboard">Copy MD</button>
+              <button id="dh-btn-close-preview" class="dh-btn-icon" title="Close preview (Esc)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
           </div>
           <div class="dh-preview-body">${this.escapeHtml(previewPage.markdown)}</div>
         </div>
       `;
     }
+
+    // Toast Notice (Flaw 19)
+    const toastHtml = this.toastMessage ? `<div class="dh-toast">${this.escapeHtml(this.toastMessage)}</div>` : '';
 
     this.container.innerHTML = `
       <div class="dh-header" id="dh-drag-handle">
@@ -306,23 +462,26 @@ export class PanelController {
           <span class="dh-title">DocuHarvest</span>
         </div>
         <div class="dh-header-actions">
-          <button id="dh-btn-minimize" class="dh-btn-icon" title="Minimize panel">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <button id="dh-btn-toggle-settings" class="dh-btn-icon ${this.session.panelSettingsVisible ? 'active' : ''}" title="Configuration Settings">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button id="dh-btn-minimize" class="dh-btn-icon" title="Minimize panel (Alt+Shift+D)">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <button id="dh-btn-close" class="dh-btn-icon dh-btn-close" title="Exit / Close panel">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
       </div>
 
-      <div class="dh-body">
-        <!-- Status & Progress Percentage -->
+      <div class="dh-body" aria-live="polite">
+        <!-- Status & Progress Percentage (Flaw 11) -->
         <div class="dh-status-bar">
           <div class="${badgeClass}">
             <span class="dh-dot"></span>
             <span>${statusLabel}</span>
           </div>
-          <span class="dh-progress-pill">${stats.progressPercentage}%</span>
+          <span class="dh-progress-pill">${stats.collected + stats.skipped}/${stats.discovered} (${stats.progressPercentage}%)</span>
         </div>
 
         <!-- Progress Bar -->
@@ -330,7 +489,7 @@ export class PanelController {
           <div class="dh-progress-fill" style="width: ${stats.progressPercentage}%"></div>
         </div>
 
-        <!-- Precision Telemetry Matrix (replaces generic 3 cards in a row) -->
+        <!-- Precision Telemetry Matrix with Throughput & ETA (Flaw 15) -->
         <div class="dh-telemetry-matrix">
           <div class="dh-telemetry-cell">
             <span class="dh-telemetry-val">${stats.discovered}</span>
@@ -345,24 +504,30 @@ export class PanelController {
             <span class="dh-telemetry-lbl">Remaining</span>
           </div>
           <div class="dh-telemetry-cell">
-            <span class="dh-telemetry-val">${stats.totalWords > 0 ? `${Math.round(stats.totalWords / 100) / 10}k` : '0'}</span>
-            <span class="dh-telemetry-lbl">Words</span>
+            <span class="dh-telemetry-val" title="${etaText}">${status === 'running' ? etaText : `~${Math.round(stats.totalWords / 100) / 10}k w`}</span>
+            <span class="dh-telemetry-lbl">${status === 'running' ? 'Progress' : 'Words'}</span>
           </div>
         </div>
 
-        <!-- Current Page Context -->
+        <!-- Inline Settings Drawer -->
+        ${settingsDrawerHtml}
+
+        <!-- Current Page Context with URL Prefix (Flaw 7) -->
         <div class="dh-page-card">
-          <span class="dh-page-label">Current Page</span>
+          <div class="dh-page-card-header">
+            <span class="dh-page-label">Current Target</span>
+            <span class="dh-prefix-badge" title="Active URL prefix boundary">Prefix: ${this.escapeHtml(this.session.config.urlPrefix || 'None')}</span>
+          </div>
           <div class="dh-page-title" title="${this.escapeHtml(currentPageName)}">${this.escapeHtml(currentPageName)}</div>
           <div class="dh-page-url" title="${this.escapeHtml(currentUrl)}">${this.escapeHtml(currentUrl)}</div>
         </div>
 
-        <!-- Current Operation Log -->
-        <div class="dh-op-box">
+        <!-- Operation Log (Flaw 14) -->
+        <div class="dh-op-box" title="${this.escapeHtml(currentOperation)}">
           <svg class="dh-op-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/>
           </svg>
-          <span class="dh-op-text" title="${this.escapeHtml(currentOperation)}">${this.escapeHtml(currentOperation)}</span>
+          <span class="dh-op-text">${this.escapeHtml(currentOperation)}</span>
         </div>
 
         <!-- Control Buttons -->
@@ -370,10 +535,10 @@ export class PanelController {
           ${actionButtonsHtml}
         </div>
 
-        <!-- Visible Queue Inspector Button -->
-        <button id="dh-btn-toggle-queue" class="dh-queue-toggle-btn">
-          <span>Page Queue (${stats.discovered} pages)</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <!-- Visible Queue Inspector Button (Flaw 9) -->
+        <button id="dh-btn-toggle-queue" class="dh-queue-toggle-btn" aria-expanded="${this.session.panelQueueVisible}">
+          <span>Queue Inspector (${stats.discovered} pages)</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             ${this.session.panelQueueVisible ? '<polyline points="18 15 12 9 6 15"/>' : '<polyline points="6 9 12 15 18 9"/>'}
           </svg>
         </button>
@@ -388,6 +553,9 @@ export class PanelController {
 
         <!-- Preview Modal -->
         ${previewModalHtml}
+
+        <!-- Toast Notice -->
+        ${toastHtml}
       </div>
     `;
 
@@ -443,9 +611,12 @@ export class PanelController {
     if (!this.container) return;
 
     const pos = this.session.panelPosition;
+    const maxW = Math.max(10, window.innerWidth - (this.container.offsetWidth || 380) - 10);
+    const maxH = Math.max(10, window.innerHeight - (this.container.offsetHeight || 100) - 10);
+
     if (pos && pos.x >= 0 && pos.y >= 0) {
-      const clampedX = Math.max(10, Math.min(window.innerWidth - 60, pos.x));
-      const clampedY = Math.max(10, Math.min(window.innerHeight - 60, pos.y));
+      const clampedX = Math.max(10, Math.min(maxW, pos.x));
+      const clampedY = Math.max(10, Math.min(maxH, pos.y));
       this.container.style.left = `${clampedX}px`;
       this.container.style.top = `${clampedY}px`;
       this.container.style.right = 'auto';
@@ -464,7 +635,7 @@ export class PanelController {
 
     handle.onpointerdown = (e: PointerEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest('button')) return;
+      if (target.closest('button') || target.closest('input')) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -550,16 +721,119 @@ export class PanelController {
         this.destroy();
       }
     });
+
+    bind('dh-btn-toggle-settings', () => {
+      if (this.events.onToggleSettings) {
+        this.events.onToggleSettings();
+      }
+    });
+
+    bind('dh-btn-close-settings', () => {
+      if (this.events.onToggleSettings) {
+        this.events.onToggleSettings();
+      }
+    });
+
+    bind('dh-btn-save-settings', () => {
+      const rateLimitEl = this.shadow!.getElementById('dh-cfg-ratelimit') as HTMLInputElement | null;
+      const urlPrefixEl = this.shadow!.getElementById('dh-cfg-urlprefix') as HTMLInputElement | null;
+      const selectorEl = this.shadow!.getElementById('dh-cfg-selector') as HTMLInputElement | null;
+      const accordionsEl = this.shadow!.getElementById('dh-cfg-accordions') as HTMLInputElement | null;
+      const tabsEl = this.shadow!.getElementById('dh-cfg-tabs') as HTMLInputElement | null;
+      const autoScrollEl = this.shadow!.getElementById('dh-cfg-autoscroll') as HTMLInputElement | null;
+
+      if (this.events.onUpdateConfig) {
+        this.events.onUpdateConfig({
+          rateLimitMs: rateLimitEl ? parseInt(rateLimitEl.value, 10) || 1200 : 1200,
+          urlPrefix: urlPrefixEl ? urlPrefixEl.value.trim() : this.session.config.urlPrefix,
+          contentSelector: selectorEl ? selectorEl.value.trim() : undefined,
+          expandAccordions: accordionsEl ? accordionsEl.checked : true,
+          captureTabs: tabsEl ? tabsEl.checked : true,
+          autoScroll: autoScrollEl ? autoScrollEl.checked : false,
+        });
+        this.showToast('Configuration updated');
+      }
+    });
+
     bind('dh-btn-start', () => this.events.onStart());
     bind('dh-btn-pause', () => this.events.onPause());
     bind('dh-btn-resume', () => this.events.onResume());
     bind('dh-btn-stop', () => this.events.onStop());
     bind('dh-btn-reset', () => this.events.onReset());
-    bind('dh-btn-export-md', () => this.events.onExportMarkdown());
-    bind('dh-btn-export-json', () => this.events.onExportJson());
-    bind('dh-btn-export-csv', () => this.events.onExportCsv());
+
+    bind('dh-btn-export-md', () => {
+      this.events.onExportMarkdown();
+      this.showToast('Exported Markdown bundle');
+    });
+
+    bind('dh-btn-export-json', () => {
+      this.events.onExportJson();
+      this.showToast('Exported JSON bundle');
+    });
+
+    bind('dh-btn-export-csv', () => {
+      this.events.onExportCsv();
+      this.showToast('Exported CSV bundle');
+    });
+
+    bind('dh-btn-copy-md', async () => {
+      if (this.events.onCopyMarkdown) {
+        this.events.onCopyMarkdown();
+      } else {
+        await copyMarkdownToClipboard(this.session);
+      }
+      this.showToast('Copied bundle to clipboard');
+    });
+
+    bind('dh-btn-copy-preview', async () => {
+      if (this.session.previewPageUrl && this.session.collectedPages[this.session.previewPageUrl]) {
+        const md = this.session.collectedPages[this.session.previewPageUrl].markdown;
+        try {
+          await navigator.clipboard.writeText(md);
+          this.showToast('Page markdown copied');
+        } catch {
+          this.showToast('Copy failed');
+        }
+      }
+    });
+
     bind('dh-btn-toggle-queue', () => this.events.onToggleQueue());
     bind('dh-btn-close-preview', () => this.events.onPreviewPage(null));
+
+    // Queue search input
+    const searchInput = this.shadow!.getElementById('dh-queue-search') as HTMLInputElement | null;
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        e.stopPropagation();
+        this.queueSearchQuery = searchInput.value;
+        this.render(this.session);
+      };
+    }
+
+    // Queue filter tabs
+    this.shadow!.querySelectorAll<HTMLButtonElement>('.dh-queue-filter-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const filter = btn.getAttribute('data-filter') || 'all';
+        this.queueStatusFilter = filter;
+        this.render(this.session);
+      };
+    });
+
+    // Queue bulk actions
+    bind('dh-btn-skip-all-pending', () => {
+      if (this.events.onSkipAllPending) {
+        this.events.onSkipAllPending();
+        this.showToast('Skipped pending queue');
+      }
+    });
+
+    bind('dh-btn-retry-all-failed', () => {
+      if (this.events.onRetryAllFailed) {
+        this.events.onRetryAllFailed();
+        this.showToast('Re-queued failed pages');
+      }
+    });
 
     // Clear data confirmation handlers
     bind('dh-btn-clear-data', () => {
@@ -575,10 +849,11 @@ export class PanelController {
     bind('dh-btn-confirm-clear', () => {
       this.showClearConfirm = false;
       this.events.onClearData();
+      this.showToast('Storage wiped and reset');
     });
 
     // Preview button clicks
-    this.shadow.querySelectorAll<HTMLButtonElement>('.dh-btn-preview').forEach(btn => {
+    this.shadow!.querySelectorAll<HTMLButtonElement>('.dh-btn-preview').forEach(btn => {
       btn.onclick = (e) => {
         e.stopPropagation();
         const url = btn.getAttribute('data-url');
@@ -589,7 +864,7 @@ export class PanelController {
     });
 
     // Per-item action buttons
-    this.shadow.querySelectorAll<HTMLButtonElement>('.dh-btn-skip').forEach(btn => {
+    this.shadow!.querySelectorAll<HTMLButtonElement>('.dh-btn-skip').forEach(btn => {
       btn.onclick = (e) => {
         e.stopPropagation();
         const url = btn.getAttribute('data-url');
@@ -599,12 +874,23 @@ export class PanelController {
       };
     });
 
-    this.shadow.querySelectorAll<HTMLButtonElement>('.dh-btn-retry').forEach(btn => {
+    this.shadow!.querySelectorAll<HTMLButtonElement>('.dh-btn-retry').forEach(btn => {
       btn.onclick = (e) => {
         e.stopPropagation();
         const url = btn.getAttribute('data-url');
         if (url && this.events.onRetryPage) {
           this.events.onRetryPage(url);
+        }
+      };
+    });
+
+    this.shadow!.querySelectorAll<HTMLButtonElement>('.dh-btn-prioritize').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const url = btn.getAttribute('data-url');
+        if (url && this.events.onPrioritizePage) {
+          this.events.onPrioritizePage(url);
+          this.showToast('Moved to top of queue');
         }
       };
     });

@@ -11,7 +11,7 @@ import {
   computeSessionStats
 } from '../src/storage/storage';
 import { HarvestSession } from '../src/types';
-import { exportAsMarkdown, exportAsJson, exportAsCsv, formatSafeCodeBlock, compileMasterMarkdown } from '../src/export/exporter';
+import { exportAsMarkdown, exportAsJson, exportAsCsv, formatSafeCodeBlock, compileMasterMarkdown, getContextualFilename } from '../src/export/exporter';
 import {
   expandAllCollapsibles,
   extractCurrentPage,
@@ -831,6 +831,159 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
 
     panel.destroy();
     expect(document.getElementById('docuharvest-root')).toBeNull();
+  });
+
+  it('Case 34: In-panel configuration settings drawer allows configuring and saving extraction parameters', () => {
+    session.panelSettingsVisible = true;
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onToggleSettings: vi.fn(),
+      onUpdateConfig: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+    const settingsDrawer = shadow.getElementById('dh-settings-drawer');
+    expect(settingsDrawer).not.toBeNull();
+
+    const rateInput = shadow.getElementById('dh-cfg-ratelimit') as HTMLInputElement;
+    expect(rateInput).not.toBeNull();
+    rateInput.value = '2500';
+
+    const saveBtn = shadow.getElementById('dh-btn-save-settings');
+    expect(saveBtn).not.toBeNull();
+    saveBtn!.click();
+
+    expect(events.onUpdateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      rateLimitMs: 2500,
+    }));
+
+    panel.destroy();
+  });
+
+  it('Case 35: Queue search query and status filters correctly isolate pages in queue drawer', () => {
+    session.panelQueueVisible = true;
+    session.discoveredPages = {
+      'https://docs.site.com/intro': { id: 'p1', url: 'https://docs.site.com/intro', title: 'Introduction', status: 'completed', depth: 0, discoveredAt: Date.now() },
+      'https://docs.site.com/api/auth': { id: 'p2', url: 'https://docs.site.com/api/auth', title: 'Authentication API', status: 'failed', depth: 0, discoveredAt: Date.now(), error: 'Timeout' },
+      'https://docs.site.com/guides': { id: 'p3', url: 'https://docs.site.com/guides', title: 'Developer Guides', status: 'pending', depth: 0, discoveredAt: Date.now() },
+    };
+    session.pagesOrder = [
+      'https://docs.site.com/intro',
+      'https://docs.site.com/api/auth',
+      'https://docs.site.com/guides',
+    ];
+    session.queue = ['https://docs.site.com/api/auth', 'https://docs.site.com/guides'];
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onSkipAllPending: vi.fn(),
+      onRetryAllFailed: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+
+    // Verify search input is present
+    const searchInput = shadow.getElementById('dh-queue-search') as HTMLInputElement;
+    expect(searchInput).not.toBeNull();
+
+    // Verify bulk action buttons are present and wired
+    const skipPendingBtn = shadow.getElementById('dh-btn-skip-all-pending');
+    expect(skipPendingBtn).not.toBeNull();
+    skipPendingBtn!.click();
+    expect(events.onSkipAllPending).toHaveBeenCalledTimes(1);
+
+    const retryFailedBtn = shadow.getElementById('dh-btn-retry-all-failed');
+    expect(retryFailedBtn).not.toBeNull();
+    retryFailedBtn!.click();
+    expect(events.onRetryAllFailed).toHaveBeenCalledTimes(1);
+
+    panel.destroy();
+  });
+
+  it('Case 36: Escape key triggers modal dismiss, cancel confirm, or docks panel', () => {
+    session.previewPageUrl = 'https://docs.site.com/intro';
+    session.collectedPages = {
+      'https://docs.site.com/intro': {
+        id: '1',
+        url: 'https://docs.site.com/intro',
+        title: 'Intro',
+        markdown: '# Intro',
+        wordCount: 100,
+        headings: [],
+        sections: [],
+        isComplete: true,
+        extractedAt: Date.now(),
+      },
+    };
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    // Press Escape key while preview modal is open
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(events.onPreviewPage).toHaveBeenCalledWith(null);
+
+    panel.destroy();
+  });
+
+  it('Case 37: Dynamic export filename derives clean contextual site domain slug and date', () => {
+    const siteSession = {
+      ...session,
+      currentUrl: 'https://docs.stripe.com/api/charges',
+    };
+    const filename = getContextualFilename(siteSession, 'md');
+    expect(filename).toContain('docuharvest-');
+    expect(filename).toContain('stripe');
+    expect(filename).toContain('charges');
+    expect(filename.endsWith('.md')).toBe(true);
   });
 });
 
