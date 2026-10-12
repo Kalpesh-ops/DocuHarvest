@@ -295,6 +295,9 @@ export class PanelController {
           <button id="dh-btn-minimize" class="dh-btn-icon" title="Minimize panel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
+          <button id="dh-btn-close" class="dh-btn-icon dh-btn-close" title="Exit / Close panel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
       </div>
 
@@ -394,7 +397,22 @@ export class PanelController {
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #94a3b8;">
         <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
       </svg>
+      <button id="dh-btn-close-pill" class="dh-btn-icon dh-btn-close dh-pill-close" title="Exit / Close panel" style="width: 18px; height: 18px; margin-left: 2px;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
     `;
+
+    const closePillBtn = this.container.querySelector<HTMLButtonElement>('#dh-btn-close-pill');
+    if (closePillBtn) {
+      closePillBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (this.events.onClose) {
+          this.events.onClose();
+        } else {
+          this.destroy();
+        }
+      };
+    }
 
     this.container.onclick = (e) => {
       e.stopPropagation();
@@ -510,6 +528,13 @@ export class PanelController {
     };
 
     bind('dh-btn-minimize', () => this.events.onToggleMinimize());
+    bind('dh-btn-close', () => {
+      if (this.events.onClose) {
+        this.events.onClose();
+      } else {
+        this.destroy();
+      }
+    });
     bind('dh-btn-start', () => this.events.onStart());
     bind('dh-btn-pause', () => this.events.onPause());
     bind('dh-btn-resume', () => this.events.onResume());

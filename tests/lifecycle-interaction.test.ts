@@ -761,5 +761,76 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
     expect(warnedMd).toContain('- **Fully Extracted Pages (Clean / Zero Warnings):** 1');
     expect(warnedMd).toContain('- **Pages with Extraction Warnings:** 1');
   });
+
+  it('Case 32: Clicking Exit button in full panel triggers onClose and unmounts the panel from DOM', () => {
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onClose: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    expect(rootEl).not.toBeNull();
+    const shadow = rootEl!.shadowRoot!;
+    const closeBtn = shadow.getElementById('dh-btn-close');
+    expect(closeBtn).not.toBeNull();
+
+    closeBtn!.click();
+    expect(events.onClose).toHaveBeenCalledTimes(1);
+
+    // Default or handler teardown
+    panel.destroy();
+    expect(document.getElementById('docuharvest-root')).toBeNull();
+  });
+
+  it('Case 33: Clicking Exit button on minimized pill triggers onClose without restoring/toggling panel', () => {
+    session.panelMinimized = true;
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onClose: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    expect(rootEl).not.toBeNull();
+    const shadow = rootEl!.shadowRoot!;
+    const closePillBtn = shadow.getElementById('dh-btn-close-pill');
+    expect(closePillBtn).not.toBeNull();
+
+    closePillBtn!.click();
+    expect(events.onClose).toHaveBeenCalledTimes(1);
+    expect(events.onToggleMinimize).not.toHaveBeenCalled();
+
+    panel.destroy();
+    expect(document.getElementById('docuharvest-root')).toBeNull();
+  });
 });
 

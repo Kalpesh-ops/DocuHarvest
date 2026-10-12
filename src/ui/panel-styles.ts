@@ -105,6 +105,11 @@ export const PANEL_CSS = `
   color: #f8fafc;
 }
 
+.dh-btn-close:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #ef4444 !important;
+}
+
 /* Body */
 .dh-body {
   padding: 14px;

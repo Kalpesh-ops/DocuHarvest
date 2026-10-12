@@ -203,4 +203,5 @@ export interface PanelEvents {
   onPositionChange: (pos: { x: number; y: number }) => void;
   onRetryPage?: (url: string) => void;
   onSkipPage?: (url: string) => void;
+  onClose?: () => void;
 }

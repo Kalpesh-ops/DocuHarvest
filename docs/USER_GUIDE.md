@@ -39,7 +39,8 @@ Open the target website in Chrome and ensure you are logged in if the content re
 ### Step 2: Inject the Collector Panel
 Click the DocuHarvest icon in your Chrome toolbar. A floating glassmorphism panel will appear in the top-right corner of the page.
 - **Move Panel**: Drag the panel by its header bar to reposition it anywhere on your screen.
-- **Minimize**: Click the `_` icon to shrink the panel into a compact badge while reading.
+- **Minimize**: Click the `—` icon to shrink the panel into a compact badge while reading.
+- **Exit / Close**: Click the `✕` icon in the panel header or minimized badge to completely dismiss DocuHarvest without reloading the page. Clicking the Chrome extension toolbar icon will re-open it on demand.
 
 ### Step 3: Discover Pages
 1. In the panel, verify the detected **Start URL** and **URL Prefix Restriction** (e.g. `https://docs.example.com/api`).

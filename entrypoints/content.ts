@@ -32,6 +32,7 @@ export default defineContentScript({
 
     let panel: PanelController | null = null;
     let orchestrator: CollectionOrchestrator | null = null;
+    let unsubscribe: (() => void) | null = null;
     let session: HarvestSession;
     let lastUrl = window.location.href;
 
@@ -104,6 +105,20 @@ export default defineContentScript({
         onRetryPage: async (url: string) => {
           if (orchestrator) await orchestrator.retryPage(url);
         },
+        onClose: async () => {
+          if (orchestrator && orchestrator.getSession().status === 'running') {
+            await orchestrator.pause();
+          }
+          if (unsubscribe) {
+            unsubscribe();
+            unsubscribe = null;
+          }
+          panel?.destroy();
+          panel = null;
+          orchestrator = null;
+          (window as any).__DOCUHARVEST_MOUNTED__ = false;
+          console.log('[DocuHarvest] Panel closed and unmounted.');
+        },
       });
 
       // Mount isolated Shadow DOM
@@ -116,7 +131,7 @@ export default defineContentScript({
       });
 
       // Subscribe to external storage updates (e.g. from background or cross-tab)
-      subscribeToSessionChanges((newSession) => {
+      unsubscribe = subscribeToSessionChanges((newSession) => {
         session = newSession;
         orchestrator?.updateSessionLocal(newSession);
         panel?.render(newSession);
