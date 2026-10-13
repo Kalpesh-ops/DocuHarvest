@@ -974,3 +974,80 @@ export async function extractCurrentPage(
     window.scrollTo({ left: initialScrollX, top: initialScrollY, behavior: 'instant' });
   }
 }
+
+export interface CandidateContentContainer {
+  selector: string;
+  label: string;
+  wordCount: number;
+}
+
+/**
+ * Automatically inspects the webpage to find candidate documentation content containers.
+ */
+export function detectCandidateSelectors(doc: Document = document): CandidateContentContainer[] {
+  const commonSelectors: Array<{ selector: string; label: string }> = [
+    { selector: 'main', label: '<main> (Primary document element)' },
+    { selector: 'article', label: '<article> (Article content)' },
+    { selector: '[role="main"]', label: '[role="main"] (ARIA Main region)' },
+    { selector: '.markdown-body', label: '.markdown-body (GitHub / Docusaurus)' },
+    { selector: '.theme-doc-markdown', label: '.theme-doc-markdown (Docusaurus)' },
+    { selector: '.docs-content', label: '.docs-content (Docs layout)' },
+    { selector: '.content', label: '.content (Standard content wrapper)' },
+    { selector: '.prose', label: '.prose (Tailwind typography content)' },
+    { selector: '#main-content', label: '#main-content (Main ID container)' },
+    { selector: '#content', label: '#content (Content ID container)' },
+    { selector: '.documentation-content', label: '.documentation-content' },
+  ];
+
+  const results: CandidateContentContainer[] = [];
+  const seenSelectors = new Set<string>();
+
+  for (const c of commonSelectors) {
+    try {
+      const el = doc.querySelector(c.selector);
+      if (el && !el.closest('#docuharvest-root')) {
+        const text = (el as HTMLElement).innerText || el.textContent || '';
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
+        if (words >= 10 && !seenSelectors.has(c.selector)) {
+          seenSelectors.add(c.selector);
+          results.push({
+            selector: c.selector,
+            label: `${c.label} (~${words}w)`,
+            wordCount: words,
+          });
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Also check elements with classes containing content, markdown, or doc
+  try {
+    const candidateEls = Array.from(doc.querySelectorAll<HTMLElement>('div[class*="content"], div[class*="markdown"], div[class*="doc"], section[class*="doc"]'))
+      .filter(el => !el.closest('#docuharvest-root'));
+
+    for (const el of candidateEls.slice(0, 5)) {
+      const classList = (el.className || '').split(/\s+/).filter(cls => cls.includes('content') || cls.includes('markdown') || cls.includes('doc'));
+      if (classList.length > 0) {
+        const sel = `${el.tagName.toLowerCase()}.${classList[0]}`;
+        if (!seenSelectors.has(sel)) {
+          const text = el.innerText || el.textContent || '';
+          const words = text.trim().split(/\s+/).filter(Boolean).length;
+          if (words >= 15) {
+            seenSelectors.add(sel);
+            results.push({
+              selector: sel,
+              label: `${sel} (~${words}w)`,
+              wordCount: words,
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return results.sort((a, b) => b.wordCount - a.wordCount);
+}

@@ -18,6 +18,7 @@ import {
   handleVirtualizedAndNestedContainers,
   extractBreadcrumbs,
   extractInternalLinks,
+  detectCandidateSelectors,
 } from '../src/extractor/dom-extractor';
 import { extractAllTabsSafely } from '../src/extractor/tab-extractor';
 
@@ -1186,5 +1187,201 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
 
     panel.destroy();
   });
+
+  it('Case 43: DOM candidate selector detection inspects and ranks document containers', () => {
+    document.body.innerHTML = `
+      <header>Site Header</header>
+      <main id="main-content">
+        <p>First paragraph with enough words to establish a substantial text block for inspection.</p>
+        <p>Second paragraph adding more detailed documentation explanations about the system architecture.</p>
+      </main>
+      <article class="markdown-body">
+        <h1>Heading Title for the Documentation Section</h1>
+        <p>Article body containing technical walkthroughs, installation steps, configuration guides, and references with multiple sentences and detailed explanations.</p>
+      </article>
+      <footer>Footer content</footer>
+    `;
+
+    const candidates = detectCandidateSelectors(document);
+    expect(candidates.length).toBeGreaterThan(0);
+    const selectors = candidates.map(c => c.selector);
+    expect(selectors.some(s => s === 'main' || s === '#main-content')).toBe(true);
+    expect(selectors.some(s => s === 'article' || s === '.markdown-body')).toBe(true);
+    expect(candidates[0].wordCount).toBeGreaterThan(15);
+  });
+
+  it('Case 44: Pre-Harvest Discovery transitions session to "review" state with default Select All on pages and scrolling', async () => {
+    document.body.innerHTML = `
+      <nav class="sidebar">
+        <a href="/intro">Introduction</a>
+        <a href="/guides">Guides</a>
+        <a href="/faq">FAQ</a>
+      </nav>
+    `;
+
+    const orchestrator = new CollectionOrchestrator(session);
+    await orchestrator.discoverAndReview();
+
+    const currentSession = orchestrator.getSession();
+    expect(currentSession.status).toBe('review');
+    expect(currentSession.pagesOrder.length).toBeGreaterThanOrEqual(3);
+
+    for (const url of currentSession.pagesOrder) {
+      const page = currentSession.discoveredPages[url];
+      expect(page.selected).toBe(true);
+      expect(page.requiresScroll).toBe(true);
+    }
+  });
+
+  it('Case 45: Panel Staging Review UI renders checklist, allows deselecting leaf pages and toggling scroll preferences', () => {
+    session.status = 'review';
+    session.discoveredPages = {
+      'https://docs.site.com/intro': { id: '1', url: 'https://docs.site.com/intro', title: 'Intro', depth: 1, status: 'pending', selected: true, requiresScroll: true, discoveredAt: 0 },
+      'https://docs.site.com/guides': { id: '2', url: 'https://docs.site.com/guides', title: 'Guides', depth: 1, status: 'pending', selected: true, requiresScroll: true, discoveredAt: 0 },
+      'https://docs.site.com/external-leaf': { id: '3', url: 'https://docs.site.com/external-leaf', title: 'Leaf Page Without Sidebar', depth: 1, status: 'pending', selected: true, requiresScroll: true, discoveredAt: 0 },
+    };
+    session.pagesOrder = [
+      'https://docs.site.com/intro',
+      'https://docs.site.com/guides',
+      'https://docs.site.com/external-leaf'
+    ];
+
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onTogglePageSelection: vi.fn(),
+      onTogglePageScroll: vi.fn(),
+      onConfirmHarvest: vi.fn(),
+      onSelectAllPages: vi.fn(),
+      onSelectAllScroll: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+
+    // Check review checklist items
+    const reviewItems = shadow.querySelectorAll('.dh-review-item');
+    expect(reviewItems.length).toBe(3);
+
+    // Deselect leaf page without sidebar
+    const pageCheckboxes = shadow.querySelectorAll<HTMLInputElement>('.dh-review-chk-page');
+    expect(pageCheckboxes.length).toBe(3);
+    pageCheckboxes[2].click();
+    expect(events.onTogglePageSelection).toHaveBeenCalledWith('https://docs.site.com/external-leaf', false);
+
+    // Toggle scroll preference on Guides
+    const scrollCheckboxes = shadow.querySelectorAll<HTMLInputElement>('.dh-review-chk-scroll');
+    expect(scrollCheckboxes.length).toBe(3);
+    scrollCheckboxes[1].click();
+    expect(events.onTogglePageScroll).toHaveBeenCalledWith('https://docs.site.com/guides', false);
+
+    // Click Compile Selected button
+    const confirmBtn = shadow.getElementById('dh-btn-confirm-harvest') as HTMLButtonElement;
+    expect(confirmBtn).not.toBeNull();
+    confirmBtn.click();
+    expect(events.onConfirmHarvest).toHaveBeenCalled();
+
+    panel.destroy();
+  });
+
+  it('Case 46: confirmHarvest() filters collection queue to only selected pages and executes extraction loop', async () => {
+    session.status = 'review';
+    session.discoveredPages = {
+      'https://docs.site.com/intro': { id: '1', url: 'https://docs.site.com/intro', title: 'Intro', depth: 1, status: 'pending', selected: true, requiresScroll: false, discoveredAt: 0 },
+      'https://docs.site.com/guides': { id: '2', url: 'https://docs.site.com/guides', title: 'Guides', depth: 1, status: 'pending', selected: true, requiresScroll: true, discoveredAt: 0 },
+      'https://docs.site.com/no-sidebar-leaf': { id: '3', url: 'https://docs.site.com/no-sidebar-leaf', title: 'Leaf Without Sidebar', depth: 1, status: 'pending', selected: false, requiresScroll: true, discoveredAt: 0 },
+    };
+    session.pagesOrder = [
+      'https://docs.site.com/intro',
+      'https://docs.site.com/guides',
+      'https://docs.site.com/no-sidebar-leaf'
+    ];
+
+    const orchestrator = new CollectionOrchestrator(session);
+
+    // Confirm harvest with only intro and guides
+    await orchestrator.confirmHarvest(
+      ['https://docs.site.com/intro', 'https://docs.site.com/guides'],
+      { 'https://docs.site.com/intro': false, 'https://docs.site.com/guides': true }
+    );
+
+    const updated = orchestrator.getSession();
+    expect(updated.status).toBe('running');
+    expect(updated.discoveredPages['https://docs.site.com/no-sidebar-leaf'].selected).toBe(false);
+    expect(updated.discoveredPages['https://docs.site.com/intro'].requiresScroll).toBe(false);
+    expect(updated.queue.includes('https://docs.site.com/no-sidebar-leaf')).toBe(false);
+  });
+
+  it('Case 47: Settings drawer candidate dropdown and visual element picker updates contentSelector', () => {
+    document.body.innerHTML = `
+      <article class="docs-container">
+        <p>Documentation text for container testing with sufficient words to pass detection thresholds.</p>
+        <p>Additional paragraph verifying interactive element inspector functionality and highlight overlay.</p>
+      </article>
+    `;
+
+    session.panelSettingsVisible = true;
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+      onUpdateConfig: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+
+    // Verify candidate dropdown exists and contains options
+    const dropdown = shadow.getElementById('dh-cfg-selector-dropdown') as HTMLSelectElement;
+    expect(dropdown).not.toBeNull();
+    expect(dropdown.options.length).toBeGreaterThan(1);
+
+    // Pick element button activates inspector
+    const pickBtn = shadow.getElementById('dh-btn-pick-element') as HTMLButtonElement;
+    expect(pickBtn).not.toBeNull();
+    pickBtn.click();
+
+    // Verify picker highlight element is attached to body
+    const highlight = document.getElementById('dh-picker-highlight');
+    expect(highlight).not.toBeNull();
+
+    // Simulate clicking the article
+    const article = document.querySelector('article')!;
+    article.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(events.onUpdateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      contentSelector: 'article.docs-container'
+    }));
+
+    panel.destroy();
+  });
 });
+
 

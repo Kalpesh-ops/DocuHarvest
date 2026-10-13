@@ -4,6 +4,7 @@
 
 export type CollectionStatus =
   | 'idle'
+  | 'review'
   | 'running'
   | 'paused'
   | 'stopped'
@@ -40,6 +41,9 @@ export interface DiscoveredPage {
   wordCount?: number;
   retryCount?: number;
   skippedReason?: string;
+  selected?: boolean;
+  requiresScroll?: boolean;
+  hasSidebar?: boolean;
 }
 
 export interface CodeBlock {
@@ -210,5 +214,11 @@ export interface PanelEvents {
   onRetryAllFailed?: () => void;
   onUpdateConfig?: (cfg: Partial<HarvestConfig>) => void;
   onCopyMarkdown?: () => void;
+  onDiscoverPages?: () => void;
+  onConfirmHarvest?: (selectedUrls: string[], scrollPreferences: Record<string, boolean>) => void;
+  onTogglePageSelection?: (url: string, selected: boolean) => void;
+  onTogglePageScroll?: (url: string, requiresScroll: boolean) => void;
+  onSelectAllPages?: (selected: boolean) => void;
+  onSelectAllScroll?: (requiresScroll: boolean) => void;
   onClose?: () => void;
 }

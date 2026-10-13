@@ -115,13 +115,153 @@ export class CollectionOrchestrator {
   }
 
   /**
-   * Starts a new collection or restarts from current page.
+   * Discovers pages from the navigation and transitions to the 'review' staging state.
    */
-  public async start(): Promise<void> {
+  public async discoverAndReview(): Promise<void> {
+    this.session.status = 'review';
+    this.session.activeCoordinatorToken = null;
+    this.emitUpdate('Discovering documentation pages from sidebar and navigation...');
+
+    const discovered = await discoverPages(this.session.config);
+    const discoveredMap: Record<string, DiscoveredPage> = {};
+    const pagesOrder: string[] = [];
+    const queue: string[] = [];
+
+    for (const page of discovered) {
+      page.selected = true;
+      page.requiresScroll = true;
+      discoveredMap[page.url] = page;
+      pagesOrder.push(page.url);
+      queue.push(page.url);
+    }
+
+    this.session.discoveredPages = discoveredMap;
+    this.session.pagesOrder = pagesOrder;
+    this.session.queue = queue;
+    this.session.collectedPages = this.session.collectedPages || {};
+    this.navigationAttempts.clear();
+
+    const stats = computeSessionStats(this.session);
+    this.session.progressPercentage = stats.progressPercentage;
+    this.session.currentOperation = `Discovered ${pagesOrder.length} pages. Review pages to compile and toggle scroll options below.`;
+
+    await this.saveAndNotify();
+  }
+
+  /**
+   * Confirms reviewed pages and starts the collection loop.
+   */
+  public async confirmHarvest(
+    selectedUrls?: string[],
+    scrollPreferences?: Record<string, boolean>
+  ): Promise<void> {
+    if (selectedUrls) {
+      const selectedSet = new Set(selectedUrls);
+      for (const url of this.session.pagesOrder) {
+        if (this.session.discoveredPages[url]) {
+          this.session.discoveredPages[url].selected = selectedSet.has(url);
+        }
+      }
+    }
+
+    if (scrollPreferences) {
+      for (const [url, reqScroll] of Object.entries(scrollPreferences)) {
+        if (this.session.discoveredPages[url]) {
+          this.session.discoveredPages[url].requiresScroll = reqScroll;
+        }
+      }
+    }
+
+    // Filter queue to selected pages only
+    const queueToProcess = this.session.pagesOrder.filter(
+      url => this.session.discoveredPages[url]?.selected !== false
+    );
+
+    this.abortController = new AbortController();
+    this.session.activeCoordinatorToken = this.coordinatorToken;
+    this.session.status = 'running';
+    this.session.startedAt = Date.now();
+    this.session.completedAt = undefined;
+    this.session.activeTargetUrl = normalizeUrl(window.location.href);
+    this.session.queue = queueToProcess;
+    this.session.collectedPages = this.session.collectedPages || {};
+    this.navigationAttempts.clear();
+
+    const stats = computeSessionStats(this.session);
+    this.session.progressPercentage = stats.progressPercentage;
+    this.session.currentOperation = `Starting compilation for ${queueToProcess.length} selected pages...`;
+
+    await this.saveAndNotify();
+    await this.runCollectionLoop();
+  }
+
+  /**
+   * Cancels the review staging state and returns to idle.
+   */
+  public async cancelReview(): Promise<void> {
+    if (this.session.status !== 'review') return;
+    this.session.status = 'idle';
+    this.session.activeCoordinatorToken = null;
+    this.session.currentOperation = 'Ready to collect documentation.';
+    await this.saveAndNotify();
+  }
+
+  /**
+   * Toggles inclusion of a page in the harvest review checklist.
+   */
+  public async togglePageSelection(url: string, selected: boolean): Promise<void> {
+    if (this.session.discoveredPages[url]) {
+      this.session.discoveredPages[url].selected = selected;
+      await this.saveAndNotify();
+    }
+  }
+
+  /**
+   * Toggles per-page viewport scrolling requirement in review.
+   */
+  public async togglePageScroll(url: string, requiresScroll: boolean): Promise<void> {
+    if (this.session.discoveredPages[url]) {
+      this.session.discoveredPages[url].requiresScroll = requiresScroll;
+      await this.saveAndNotify();
+    }
+  }
+
+  /**
+   * Bulk toggles selection of all discovered pages.
+   */
+  public async selectAllPages(selected: boolean): Promise<void> {
+    for (const page of Object.values(this.session.discoveredPages)) {
+      page.selected = selected;
+    }
+    await this.saveAndNotify();
+  }
+
+  /**
+   * Bulk toggles viewport scrolling for all discovered pages.
+   */
+  public async selectAllScroll(requiresScroll: boolean): Promise<void> {
+    for (const page of Object.values(this.session.discoveredPages)) {
+      page.requiresScroll = requiresScroll;
+    }
+    await this.saveAndNotify();
+  }
+
+  /**
+   * Starts a new collection, resuming or initiating review.
+   */
+  public async start(direct: boolean = false): Promise<void> {
     if (this.session.status === 'running') return;
 
     if (this.session.status === 'paused') {
       return this.resume();
+    }
+
+    if (this.session.status === 'review') {
+      return this.confirmHarvest();
+    }
+
+    if (!direct) {
+      return this.discoverAndReview();
     }
 
     this.abortController = new AbortController();
@@ -139,6 +279,8 @@ export class CollectionOrchestrator {
     const queue: string[] = [];
 
     for (const page of discovered) {
+      page.selected = true;
+      page.requiresScroll = this.session.config.autoScroll !== false;
       discoveredMap[page.url] = page;
       pagesOrder.push(page.url);
       queue.push(page.url);
@@ -156,6 +298,7 @@ export class CollectionOrchestrator {
     await this.saveAndNotify();
     await this.runCollectionLoop();
   }
+
 
   /**
    * Pauses the collection. Halted immediately across any asynchronous delays.
@@ -453,9 +596,14 @@ export class CollectionOrchestrator {
         }, this.session.config.pageExtractionTimeoutMs);
       });
 
+      const targetPage = this.session.discoveredPages[currentNormUrl];
+      const pageRequiresScroll = (targetPage?.requiresScroll !== undefined)
+        ? targetPage.requiresScroll
+        : this.session.config.autoScroll;
+
       const extractionPromise = extractCurrentPage(
         this.session.config.contentSelector,
-        this.session.config.autoScroll,
+        pageRequiresScroll,
         this.session.config.expandAccordions,
         this.session.config.captureTabs,
         this.session.config.safeTabSwitching,

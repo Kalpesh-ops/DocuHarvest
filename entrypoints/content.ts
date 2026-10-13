@@ -47,7 +47,31 @@ export default defineContentScript({
       // Create panel controller with callback bindings
       panel = new PanelController(session, {
         onStart: async () => {
-          if (orchestrator) await orchestrator.start();
+          if (orchestrator) {
+            if (session.status === 'review') {
+              await orchestrator.confirmHarvest();
+            } else {
+              await orchestrator.start();
+            }
+          }
+        },
+        onDiscoverPages: async () => {
+          if (orchestrator) await orchestrator.discoverAndReview();
+        },
+        onConfirmHarvest: async (selectedUrls, scrollPrefs) => {
+          if (orchestrator) await orchestrator.confirmHarvest(selectedUrls, scrollPrefs);
+        },
+        onTogglePageSelection: async (url, selected) => {
+          if (orchestrator) await orchestrator.togglePageSelection(url, selected);
+        },
+        onTogglePageScroll: async (url, requiresScroll) => {
+          if (orchestrator) await orchestrator.togglePageScroll(url, requiresScroll);
+        },
+        onSelectAllPages: async (selected) => {
+          if (orchestrator) await orchestrator.selectAllPages(selected);
+        },
+        onSelectAllScroll: async (requiresScroll) => {
+          if (orchestrator) await orchestrator.selectAllScroll(requiresScroll);
         },
         onPause: async () => {
           if (orchestrator) await orchestrator.pause();

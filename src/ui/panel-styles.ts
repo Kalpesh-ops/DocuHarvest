@@ -170,6 +170,11 @@ export const PANEL_CSS = `
 }
 .dh-badge-idle .dh-dot { background: #8b949e; }
 
+.dh-badge-review {
+  color: #58a6ff;
+}
+.dh-badge-review .dh-dot { background: #58a6ff; }
+
 .dh-badge-running {
   color: #3fb950;
 }
@@ -879,4 +884,138 @@ export const PANEL_CSS = `
   border-radius: 2px;
   font-family: ui-monospace, "SF Mono", Consolas, monospace;
 }
+
+/* Staging Compilation Review Box */
+.dh-review-container {
+  padding: 10px 12px;
+  background: #0d1117;
+  border-top: 1px solid #21262d;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dh-review-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dh-review-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f0f6fc;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dh-review-notice {
+  font-size: 10px;
+  color: #8b949e;
+  line-height: 1.3;
+}
+
+.dh-review-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+.dh-review-bulk-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #c9d1d9;
+  font-weight: 500;
+}
+
+.dh-review-bulk-label input[type="checkbox"],
+.dh-review-chk-page,
+.dh-review-chk-scroll {
+  cursor: pointer;
+  accent-color: #58a6ff;
+}
+
+.dh-review-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #30363d;
+  border-radius: 2px;
+  background: #161b22;
+  display: flex;
+  flex-direction: column;
+}
+
+.dh-review-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid #21262d;
+  font-size: 11px;
+  transition: background-color 0.08s ease;
+}
+
+.dh-review-item:last-child {
+  border-bottom: none;
+}
+
+.dh-review-item:hover {
+  background: #21262d;
+}
+
+.dh-review-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.dh-review-item-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dh-review-item-title {
+  color: #f0f6fc;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dh-review-item-url {
+  color: #8b949e;
+  font-size: 9px;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dh-review-scroll-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #8b949e;
+  cursor: pointer;
+  padding-left: 8px;
+  user-select: none;
+}
+
+.dh-review-scroll-label:hover {
+  color: #c9d1d9;
+}
 `;
+

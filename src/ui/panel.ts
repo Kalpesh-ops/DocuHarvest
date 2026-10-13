@@ -9,6 +9,7 @@ import { HarvestSession, PanelEvents } from '../types';
 import { computeSessionStats } from '../storage/storage';
 import { PANEL_CSS } from './panel-styles';
 import { copyMarkdownToClipboard } from '../export/exporter';
+import { detectCandidateSelectors } from '../extractor/dom-extractor';
 
 export class PanelController {
   private host: HTMLElement | null = null;
@@ -179,6 +180,7 @@ export class PanelController {
 
     const stats = computeSessionStats(this.session);
     const { status, currentPageName, currentUrl, currentOperation } = this.session;
+    const discoveredList = this.session.pagesOrder.map(url => this.session.discoveredPages[url]).filter(Boolean);
 
     this.container.className = 'dh-container';
     this.applyPosition();
@@ -208,6 +210,17 @@ export class PanelController {
         <button id="dh-btn-start" class="dh-btn dh-btn-primary">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
           ${status === 'completed' ? 'Restart Harvest' : 'Start Collection'}
+        </button>
+      `;
+    } else if (status === 'review') {
+      const selectedCount = discoveredList.filter(p => p.selected !== false).length;
+      actionButtonsHtml = `
+        <button id="dh-btn-confirm-harvest" class="dh-btn dh-btn-primary">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Compile Selected (${selectedCount})
+        </button>
+        <button id="dh-btn-cancel-review" class="dh-btn dh-btn-secondary">
+          Cancel
         </button>
       `;
     } else if (status === 'running') {
@@ -249,6 +262,20 @@ export class PanelController {
     let settingsDrawerHtml = '';
     if (this.session.panelSettingsVisible) {
       const cfg = this.session.config;
+      let detectedCandidates: Array<{ selector: string; label: string; wordCount: number }> = [];
+      try {
+        detectedCandidates = detectCandidateSelectors(document);
+      } catch {
+        detectedCandidates = [];
+      }
+      const isCustomSelector = !!cfg.contentSelector && !detectedCandidates.some(c => c.selector === cfg.contentSelector);
+
+      const candidateOptionsHtml = detectedCandidates.map(c => `
+        <option value="${this.escapeHtml(c.selector)}" ${cfg.contentSelector === c.selector ? 'selected' : ''}>
+          ${this.escapeHtml(c.label)}
+        </option>
+      `).join('');
+
       settingsDrawerHtml = `
         <div id="dh-settings-drawer" class="dh-settings-drawer">
           <div class="dh-settings-title">Extraction Parameters</div>
@@ -260,9 +287,20 @@ export class PanelController {
             <label class="dh-settings-label">URL Prefix Restriction:</label>
             <input id="dh-cfg-urlprefix" type="text" class="dh-settings-input" value="${this.escapeHtml(cfg.urlPrefix)}" placeholder="/docs">
           </div>
-          <div class="dh-settings-row">
-            <label class="dh-settings-label">Custom Content Selector:</label>
-            <input id="dh-cfg-selector" type="text" class="dh-settings-input" value="${this.escapeHtml(cfg.contentSelector || '')}" placeholder="main, article, .content">
+          <div class="dh-settings-row" style="flex-direction: column; align-items: stretch; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label class="dh-settings-label">Content Container Selector:</label>
+              <button type="button" id="dh-btn-pick-element" class="dh-btn-mini" title="Click on webpage to visually select content container" style="font-size: 10px; padding: 2px 6px;">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>
+                Pick from Page
+              </button>
+            </div>
+            <select id="dh-cfg-selector-dropdown" class="dh-settings-input" style="cursor: pointer;">
+              <option value="">Auto-Detect (Smart Fallback)</option>
+              ${candidateOptionsHtml}
+              <option value="__custom__" ${isCustomSelector ? 'selected' : ''}>Custom CSS Selector...</option>
+            </select>
+            <input id="dh-cfg-selector" type="text" class="dh-settings-input" value="${this.escapeHtml(cfg.contentSelector || '')}" placeholder="main, article, .content" style="${isCustomSelector || cfg.contentSelector ? '' : 'display: none;'} margin-top: 2px;">
           </div>
           <label class="dh-settings-checkbox-row">
             <input id="dh-cfg-accordions" type="checkbox" ${cfg.expandAccordions ? 'checked' : ''}>
@@ -284,9 +322,64 @@ export class PanelController {
       `;
     }
 
+    // Staged Pages Review Box
+    let reviewBoxHtml = '';
+    if (status === 'review') {
+      const allPagesSelected = discoveredList.length > 0 && discoveredList.every(p => p.selected !== false);
+      const allScrollSelected = discoveredList.length > 0 && discoveredList.every(p => p.requiresScroll !== false);
+      const selectedCount = discoveredList.filter(p => p.selected !== false).length;
+
+      const reviewItemsHtml = discoveredList.map(page => {
+        let displayPath = page.url;
+        try {
+          const u = new URL(page.url);
+          displayPath = u.pathname + u.search;
+        } catch {
+          // fallback
+        }
+
+        return `
+          <div class="dh-review-item">
+            <label class="dh-review-item-main">
+              <input type="checkbox" class="dh-review-chk-page" data-url="${this.escapeHtml(page.url)}" ${page.selected !== false ? 'checked' : ''}>
+              <div class="dh-review-item-details">
+                <span class="dh-review-item-title" title="${this.escapeHtml(page.title)}">${this.escapeHtml(page.title)}</span>
+                <span class="dh-review-item-url" title="${this.escapeHtml(page.url)}">${this.escapeHtml(displayPath)}</span>
+              </div>
+            </label>
+            <label class="dh-review-scroll-label" title="Enable auto-scrolling viewport during extraction for dynamic/lazy content">
+              <input type="checkbox" class="dh-review-chk-scroll" data-url="${this.escapeHtml(page.url)}" ${page.requiresScroll !== false ? 'checked' : ''}>
+              <span>Scroll</span>
+            </label>
+          </div>
+        `;
+      }).join('');
+
+      reviewBoxHtml = `
+        <div class="dh-review-container">
+          <div class="dh-review-header">
+            <div class="dh-review-title">Staged Pages Review (${discoveredList.length})</div>
+            <div class="dh-review-notice">Verify compilation scope. Uncheck leaf pages that lack return navigation, and configure auto-scrolling per page.</div>
+          </div>
+          <div class="dh-review-toolbar">
+            <label class="dh-review-bulk-label">
+              <input type="checkbox" id="dh-review-chk-all-pages" ${allPagesSelected ? 'checked' : ''}>
+              <span>Select All (${selectedCount}/${discoveredList.length})</span>
+            </label>
+            <label class="dh-review-bulk-label">
+              <input type="checkbox" id="dh-review-chk-all-scroll" ${allScrollSelected ? 'checked' : ''}>
+              <span>Scroll All</span>
+            </label>
+          </div>
+          <div class="dh-review-list">
+            ${reviewItemsHtml || '<div style="padding: 10px; text-align: center; color: #8b949e; font-size: 11px;">No pages discovered.</div>'}
+          </div>
+        </div>
+      `;
+    }
+
     // Queue List Drawer with Search & Filters (Flaws 9, 10, 13)
     let queueDrawerHtml = '';
-    const discoveredList = this.session.pagesOrder.map(url => this.session.discoveredPages[url]).filter(Boolean);
 
     if (this.session.panelQueueVisible) {
       let filtered = discoveredList;
@@ -530,6 +623,9 @@ export class PanelController {
           <span class="dh-op-text">${this.escapeHtml(currentOperation)}</span>
         </div>
 
+        <!-- Staged Pages Review Checklist -->
+        ${reviewBoxHtml}
+
         <!-- Control Buttons -->
         <div class="dh-actions">
           ${actionButtonsHtml}
@@ -761,6 +857,121 @@ export class PanelController {
     bind('dh-btn-stop', () => this.events.onStop());
     bind('dh-btn-reset', () => this.events.onReset());
 
+    // Selector dropdown change handler
+    const selectorDropdown = this.shadow!.getElementById('dh-cfg-selector-dropdown') as HTMLSelectElement | null;
+    const selectorInput = this.shadow!.getElementById('dh-cfg-selector') as HTMLInputElement | null;
+    if (selectorDropdown && selectorInput) {
+      selectorDropdown.onchange = (e) => {
+        e.stopPropagation();
+        const val = selectorDropdown.value;
+        if (val === '__custom__') {
+          selectorInput.style.display = 'block';
+          selectorInput.focus();
+        } else {
+          selectorInput.value = val;
+          selectorInput.style.display = val ? 'block' : 'none';
+        }
+      };
+    }
+
+    bind('dh-btn-pick-element', () => this.startElementPicker());
+
+    // Review stage action buttons
+    bind('dh-btn-confirm-harvest', () => {
+      const selectedUrls: string[] = [];
+      const scrollPrefs: Record<string, boolean> = {};
+
+      this.shadow!.querySelectorAll<HTMLInputElement>('.dh-review-chk-page').forEach(chk => {
+        const url = chk.getAttribute('data-url');
+        if (url && chk.checked) {
+          selectedUrls.push(url);
+        }
+      });
+
+      this.shadow!.querySelectorAll<HTMLInputElement>('.dh-review-chk-scroll').forEach(chk => {
+        const url = chk.getAttribute('data-url');
+        if (url) {
+          scrollPrefs[url] = chk.checked;
+        }
+      });
+
+      if (this.events.onConfirmHarvest) {
+        this.events.onConfirmHarvest(selectedUrls, scrollPrefs);
+      } else {
+        this.events.onStart();
+      }
+    });
+
+    bind('dh-btn-cancel-review', () => {
+      if (this.events.onReset) {
+        this.events.onReset();
+      }
+    });
+
+    // Review bulk toggles
+    const allPagesChk = this.shadow!.getElementById('dh-review-chk-all-pages') as HTMLInputElement | null;
+    if (allPagesChk) {
+      allPagesChk.onchange = (e) => {
+        e.stopPropagation();
+        const checked = allPagesChk.checked;
+        if (this.events.onSelectAllPages) {
+          this.events.onSelectAllPages(checked);
+        } else {
+          for (const page of Object.values(this.session.discoveredPages)) {
+            page.selected = checked;
+          }
+          this.render(this.session);
+        }
+      };
+    }
+
+    const allScrollChk = this.shadow!.getElementById('dh-review-chk-all-scroll') as HTMLInputElement | null;
+    if (allScrollChk) {
+      allScrollChk.onchange = (e) => {
+        e.stopPropagation();
+        const checked = allScrollChk.checked;
+        if (this.events.onSelectAllScroll) {
+          this.events.onSelectAllScroll(checked);
+        } else {
+          for (const page of Object.values(this.session.discoveredPages)) {
+            page.requiresScroll = checked;
+          }
+          this.render(this.session);
+        }
+      };
+    }
+
+    // Review item toggles
+    this.shadow!.querySelectorAll<HTMLInputElement>('.dh-review-chk-page').forEach(chk => {
+      chk.onchange = (e) => {
+        e.stopPropagation();
+        const url = chk.getAttribute('data-url');
+        if (url) {
+          if (this.events.onTogglePageSelection) {
+            this.events.onTogglePageSelection(url, chk.checked);
+          } else if (this.session.discoveredPages[url]) {
+            this.session.discoveredPages[url].selected = chk.checked;
+            this.render(this.session);
+          }
+        }
+      };
+    });
+
+    this.shadow!.querySelectorAll<HTMLInputElement>('.dh-review-chk-scroll').forEach(chk => {
+      chk.onchange = (e) => {
+        e.stopPropagation();
+        const url = chk.getAttribute('data-url');
+        if (url) {
+          if (this.events.onTogglePageScroll) {
+            this.events.onTogglePageScroll(url, chk.checked);
+          } else if (this.session.discoveredPages[url]) {
+            this.session.discoveredPages[url].requiresScroll = chk.checked;
+            this.render(this.session);
+          }
+        }
+      };
+    });
+
     bind('dh-btn-export-md', () => {
       this.events.onExportMarkdown();
       this.showToast('Exported Markdown bundle');
@@ -894,6 +1105,94 @@ export class PanelController {
         }
       };
     });
+  }
+
+  /**
+   * Interactive visual element picker for selecting custom content container.
+   */
+  private startElementPicker(): void {
+    const existing = document.getElementById('dh-picker-highlight');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'dh-picker-highlight';
+    overlay.style.cssText = `
+      position: fixed !important;
+      pointer-events: none !important;
+      z-index: 2147483646 !important;
+      border: 2px solid #58a6ff !important;
+      background: rgba(88, 166, 255, 0.08) !important;
+      box-sizing: border-box !important;
+      transition: all 0.05s ease !important;
+      display: none;
+    `;
+    document.body.appendChild(overlay);
+
+    const onMouseMove = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target || target.closest('#docuharvest-root') || target.id === 'dh-picker-highlight') {
+        overlay.style.display = 'none';
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      overlay.style.display = 'block';
+      overlay.style.top = `${rect.top}px`;
+      overlay.style.left = `${rect.left}px`;
+      overlay.style.width = `${rect.width}px`;
+      overlay.style.height = `${rect.height}px`;
+    };
+
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMouseMove, true);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+      overlay.remove();
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && !target.closest('#docuharvest-root') && target.id !== 'dh-picker-highlight') {
+        e.preventDefault();
+        e.stopPropagation();
+        cleanup();
+
+        let sel = target.tagName.toLowerCase();
+        if (target.id) {
+          sel = `#${target.id}`;
+        } else if (target.className && typeof target.className === 'string') {
+          const firstClass = target.className.split(/\s+/).filter(c => c && !c.startsWith('dh-'))[0];
+          if (firstClass) {
+            sel = `${sel}.${firstClass}`;
+          }
+        }
+
+        const input = this.shadow?.getElementById('dh-cfg-selector') as HTMLInputElement | null;
+        const dropdown = this.shadow?.getElementById('dh-cfg-selector-dropdown') as HTMLSelectElement | null;
+        if (input) {
+          input.value = sel;
+          input.style.display = 'block';
+        }
+        if (dropdown) {
+          dropdown.value = '__custom__';
+        }
+        if (this.events.onUpdateConfig) {
+          this.events.onUpdateConfig({ contentSelector: sel });
+        }
+        this.showToast(`Selected container: ${sel}`);
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        cleanup();
+        this.showToast('Inspection canceled');
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove, true);
+    document.addEventListener('click', onClick, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    this.showToast('Hover and click container element (Esc to cancel)');
   }
 
   private escapeHtml(str: string): string {
