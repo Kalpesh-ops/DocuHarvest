@@ -551,8 +551,18 @@ export class PanelController {
     this.container.innerHTML = `
       <div class="dh-header" id="dh-drag-handle">
         <div class="dh-brand">
-          <div class="dh-icon">DH</div>
+          <svg class="dh-brand-logo" width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="32" height="32" rx="7" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+            <rect x="7" y="7" width="13" height="17" rx="2" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+            <rect x="10" y="9" width="14" height="17" rx="2" fill="#0d1117" stroke="#58a6ff" stroke-width="1.2"/>
+            <line x1="13" y1="13" x2="20" y2="13" stroke="#8b949e" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="13" y1="16.5" x2="21" y2="16.5" stroke="#8b949e" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="13" y1="20" x2="18" y2="20" stroke="#8b949e" stroke-width="1.2" stroke-linecap="round"/>
+            <path d="M19 5.5C24.5 5.5 28 9.5 28 15C28 19 25 22.5 21 23.5C22.5 21 23 18.5 23 15.5C23 10.5 19 6.5 14 6.5C15.5 5.8 17.2 5.5 19 5.5Z" fill="#3fb950"/>
+            <path d="M21 8.5C23.5 11 23.5 14 21 16.5C18.5 14 18.5 11 21 8.5Z" fill="#56d364"/>
+          </svg>
           <span class="dh-title">DocuHarvest</span>
+          <span class="dh-version-tag">v0.1.0</span>
         </div>
         <div class="dh-header-actions">
           <button id="dh-btn-toggle-settings" class="dh-btn-icon ${this.session.panelSettingsVisible ? 'active' : ''}" title="Configuration Settings">
@@ -672,7 +682,12 @@ export class PanelController {
     this.applyPosition();
 
     this.container.innerHTML = `
-      <div class="dh-icon" style="width: 16px; height: 16px; font-size: 9px;">DH</div>
+      <svg class="dh-pill-logo" width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="7" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+        <rect x="7" y="7" width="13" height="17" rx="2" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+        <rect x="10" y="9" width="14" height="17" rx="2" fill="#0d1117" stroke="#58a6ff" stroke-width="1.2"/>
+        <path d="M19 5.5C24.5 5.5 28 9.5 28 15C28 19 25 22.5 21 23.5C22.5 21 23 18.5 23 15.5C23 10.5 19 6.5 14 6.5C15.5 5.8 17.2 5.5 19 5.5Z" fill="#3fb950"/>
+      </svg>
       <span class="dh-pill-title">DocuHarvest</span>
       <span class="dh-pill-count">${stats.collected}/${stats.discovered}</span>
       <span class="dh-dot" style="background: ${status === 'running' ? '#3fb950' : '#8b949e'}"></span>

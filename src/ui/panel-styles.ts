@@ -11,19 +11,26 @@
  */
 
 export const PANEL_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :host {
   all: initial;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: #c9d1d9;
   box-sizing: border-box;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+  text-rendering: optimizeLegibility !important;
 }
 
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Main Panel Container */
@@ -32,13 +39,15 @@ export const PANEL_CSS = `
   z-index: 2147483647;
   pointer-events: auto;
   user-select: none;
-  width: 380px;
+  width: 384px;
   max-width: calc(100vw - 20px);
   background: #0d1117;
   border: 1px solid #30363d;
-  border-radius: 4px;
+  border-radius: 6px;
   box-shadow: none;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .dh-container.dragging {
@@ -63,28 +72,30 @@ export const PANEL_CSS = `
   gap: 8px;
 }
 
-.dh-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 2px;
-  background: #238636;
-  border: 1px solid #2ea043;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 10px;
-  letter-spacing: -0.02em;
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+.dh-brand-logo {
+  display: block;
+  flex-shrink: 0;
 }
 
 .dh-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
   color: #f0f6fc;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.dh-version-tag {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 600;
+  color: #8b949e;
+  background: #21262d;
+  border: 1px solid #30363d;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0;
 }
 
 .dh-header-actions {
@@ -424,7 +435,7 @@ export const PANEL_CSS = `
 .dh-btn {
   flex: 1;
   padding: 7px 10px;
-  border-radius: 2px;
+  border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -435,7 +446,8 @@ export const PANEL_CSS = `
   gap: 6px;
   box-shadow: none;
   transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Outfit', -apple-system, sans-serif;
+  letter-spacing: 0.02em;
 }
 
 .dh-btn-primary {
@@ -851,7 +863,7 @@ export const PANEL_CSS = `
   user-select: none;
   background: #0d1117;
   border: 1px solid #30363d;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 5px 10px;
   display: flex;
   align-items: center;
@@ -859,6 +871,8 @@ export const PANEL_CSS = `
   box-shadow: none;
   cursor: pointer;
   transition: border-color 0.1s ease, background-color 0.1s ease;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .dh-minimized-pill:hover {
@@ -866,9 +880,15 @@ export const PANEL_CSS = `
   border-color: #58a6ff;
 }
 
+.dh-pill-logo {
+  display: block;
+  flex-shrink: 0;
+}
+
 .dh-pill-title {
-  font-size: 11px;
-  font-weight: 600;
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
   color: #f0f6fc;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -881,8 +901,8 @@ export const PANEL_CSS = `
   background: #161b22;
   border: 1px solid #21262d;
   padding: 1px 6px;
-  border-radius: 2px;
-  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', ui-monospace, "SF Mono", Consolas, monospace;
 }
 
 /* Staging Compilation Review Box */

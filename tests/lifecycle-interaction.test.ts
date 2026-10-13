@@ -21,6 +21,8 @@ import {
   detectCandidateSelectors,
 } from '../src/extractor/dom-extractor';
 import { extractAllTabsSafely } from '../src/extractor/tab-extractor';
+import { PANEL_CSS } from '../src/ui/panel-styles';
+import fs from 'fs';
 
 describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', () => {
   let session: HarvestSession;
@@ -1382,6 +1384,60 @@ describe('Phase 2 & P3 — Lifecycle, Safety & Interaction Regression Suite', ()
 
     panel.destroy();
   });
+
+  it('Case 48: Brand vector logo and Outfit typography render in full header and minimized pill, and icons exist', () => {
+    // 1. Verify PANEL_CSS includes Outfit font and anti-aliasing
+    expect(PANEL_CSS).toContain('Outfit');
+    expect(PANEL_CSS).toContain('-webkit-font-smoothing');
+    expect(PANEL_CSS).toContain('text-rendering: optimizeLegibility');
+
+    // 2. Full panel header logo
+    const events = {
+      onStart: vi.fn(),
+      onPause: vi.fn(),
+      onResume: vi.fn(),
+      onStop: vi.fn(),
+      onReset: vi.fn(),
+      onClearData: vi.fn(),
+      onExportMarkdown: vi.fn(),
+      onExportJson: vi.fn(),
+      onExportCsv: vi.fn(),
+      onToggleMinimize: vi.fn(),
+      onToggleQueue: vi.fn(),
+      onPreviewPage: vi.fn(),
+      onPositionChange: vi.fn(),
+    };
+
+    const panel = new PanelController(session, events);
+    panel.mount();
+
+    const rootEl = document.getElementById('docuharvest-root');
+    const shadow = rootEl!.shadowRoot!;
+    const logoSvg = shadow.querySelector('.dh-brand-logo');
+    expect(logoSvg).not.toBeNull();
+    const versionTag = shadow.querySelector('.dh-version-tag');
+    expect(versionTag).not.toBeNull();
+    expect(versionTag!.textContent).toContain('v0.1.0');
+
+    // 3. Minimized pill logo
+    session.panelMinimized = true;
+    panel.render(session);
+    const pillLogo = shadow.querySelector('.dh-pill-logo');
+    expect(pillLogo).not.toBeNull();
+
+    // 4. Verify extension icons exist in public directory
+    for (const size of [16, 32, 48, 128]) {
+      const iconPath = `public/icon-${size}.png`;
+      expect(fs.existsSync(iconPath)).toBe(true);
+      const buf = fs.readFileSync(iconPath);
+      expect(buf[0]).toBe(137); // PNG magic byte
+      expect(buf.readUInt32BE(16)).toBe(size);
+      expect(buf.readUInt32BE(20)).toBe(size);
+    }
+
+    panel.destroy();
+  });
 });
+
 
 
